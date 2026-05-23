@@ -1,3 +1,4 @@
 [ Phantom · Level 0 ]  Recon Gateway
  Full brief:  cat ~/BRIEFING
 
+find /opt -name '.phantom*' -o -name '*flag*' -type f 2>/dev/null | xargs cat 2>/dev/null: bl_phtm0_5f2a6f9c60ed3d72
