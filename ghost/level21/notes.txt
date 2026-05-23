@@ -1,0 +1,7 @@
+A git repo was pulled off an internal server.
+ Main is clean now. But tags and abandoned branches
+ remember every secret that was ever committed.
+
+goal: find password for ghost22
+
+git tag v0.9-internal:G1t_H1st0ry

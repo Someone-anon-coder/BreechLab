@@ -1,0 +1,8 @@
+There is no password for the next level.
+ There's a private key instead. Learn what SSH
+ key authentication actually is — and use it.
+
+goal: find key for ghost13
+
+ssh -i sshkey.private ghost13@204.168.229.209 -p 2222
+cat flag: K3y_N0t_P4ss

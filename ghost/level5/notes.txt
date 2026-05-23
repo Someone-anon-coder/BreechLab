@@ -1,0 +1,7 @@
+KAEL stopped trusting files after the incident.
+ He ran a service instead. Said if it's not on disk,
+ it can't be found. He forgot about the ports.
+
+goal: find password for ghost6
+
+echo "GHOST" | nc localhost 30101: P0rts_N3v3r_L13

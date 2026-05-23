@@ -1,0 +1,7 @@
+He cleaned the files. Wiped the logs.
+ Removed every argument from his processes.
+ But /proc remembers what the shell forgets.
+
+goal: find password for ghost9
+
+cat /proc/40/environ: Pr0c_T3lls_4ll

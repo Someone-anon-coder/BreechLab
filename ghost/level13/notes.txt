@@ -1,0 +1,7 @@
+A service on port 30000 will trade the next
+ password for the current one. Hand-craft the
+ conversation. No browser. No client library.
+
+goal: find password for ghost14
+
+nc localhost 30000: N3tc4t_D3l1v3r

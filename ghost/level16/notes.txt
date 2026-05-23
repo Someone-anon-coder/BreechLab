@@ -1,0 +1,7 @@
+Two files. Almost identical. The password is
+ the single line that differs. Don't read by eye —
+ this is what diff was built for.
+
+goal: find password for ghost17
+
+diff passwords.old passwords.new: D1ff_Sp0ts_1t

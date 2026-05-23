@@ -1,0 +1,7 @@
+A dump of passwords. Every line appears twice —
+ except one. Find the one that's on its own,
+ without reading the file by eye.
+
+goal: find password for ghost11
+
+sort data.txt | uniq -u: Str1ngs_R3v34l

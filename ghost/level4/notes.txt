@@ -1,0 +1,7 @@
+KAEL dumped everything into the vault.
+ Hundreds of log entries. One of them isn't like the others.
+ The real signal has a different format. Find it.
+
+goal: find password for ghost5
+
+vault/record_0008: Gr3p_F1nds_Truth

@@ -1,0 +1,7 @@
+KAEL said one layer was never enough.
+ Nothing he sent was ever just one thing.
+ The transmission file isn't what it looks like.
+
+goal: find password for ghost8
+
+xxd -r transmission.dat | base64 -d: D3c0d3_0r_D13

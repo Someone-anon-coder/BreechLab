@@ -1,0 +1,7 @@
+Something runs on a schedule as root. Find what.
+ Find where it writes. Find what it reads.
+ Scheduled tasks live in specific corners of /etc.
+
+goal: find password for ghost21
+
+cat /var/tmp/ghost-cron-output 2>/dev/null: Cr0n_R34ds

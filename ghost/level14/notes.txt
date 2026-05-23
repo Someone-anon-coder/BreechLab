@@ -1,0 +1,7 @@
+Same idea as the last level — but the service
+ now speaks TLS. Plain netcat will not work.
+ Find a CLI that speaks TLS, and greet it right.
+
+goal: find password for ghost15
+
+openssl s_client -connect localhost:30001: TLS_0r_N0th1ng

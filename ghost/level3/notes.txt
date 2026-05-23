@@ -1,0 +1,7 @@
+KAEL structured his storage by access level.
+ Not everything is readable by everyone.
+ Know who you are. Know what you can reach.
+
+goal: find password for ghost4
+
+/var/intel/ops/access_codes.dat: P3rm1ss10ns_M4tt3r

@@ -1,0 +1,7 @@
+One port in a range speaks TLS.
+ The rest are closed or silent.
+ Find the one that will greet you back.
+
+goal: find password for ghost16
+
+openssl s_client -connect localhost:31790 -quiet: P0rt_Sc4nn3d

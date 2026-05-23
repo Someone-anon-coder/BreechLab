@@ -1,0 +1,7 @@
+After the breach, KAEL stopped writing secrets
+ to disk. He told himself the shell would forget
+ them. It doesn't.
+
+goal: find password for ghost7
+
+echo $API_DIGEST | base64 -d: 3nv_L34ks_3v3ryth1ng

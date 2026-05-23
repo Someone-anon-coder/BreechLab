@@ -1,0 +1,19 @@
+Twenty-two levels behind you.
+ One classified file left on this machine — split
+ into three shards, each guarded by a different
+ technique from the track:
+
+   Shard 1 — buried in a binary blob
+   Shard 2 — encoded for transport
+   Shard 3 — guarded by a SUID helper
+
+ Recover all three. Hand them to the gatekeeper
+ listening on TCP :31339. Format (exact):
+
+   SHARD1:<val>|SHARD2:<val>|SHARD3:<val>
+
+ Goal:    Claim the Ghost graduation flag
+ Start:   ls  ·  cat BRIEFING  ·  then recover the shards
+
+nc localhost 31339
+SHARD1:ALPHA_Z3R0|SHARD2:BR4V0_0N3|SHARD3:CH4RL13_TW0: Gh0st_0p3r4t1v3

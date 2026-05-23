@@ -1,0 +1,3 @@
+goal: find password for ghost2
+
+'file name': D4shIsN0tAFl4g

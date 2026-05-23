@@ -1,0 +1,8 @@
+There's a binary on this system that belongs
+ to another user — but the permission bits on it
+ mean something special. Read them. Use the tool.
+
+goal: find password for ghost19
+
+cd /usr/local/bin/
+./ghost-reader: SU1D_Fl1p

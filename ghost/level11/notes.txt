@@ -1,0 +1,10 @@
+KAEL nested his payload three layers deep.
+ Each layer is a different compression format.
+ Identify first, unpack second. Keep going.
+
+goal: find password for ghost12
+
+tar -xf data.wrapped
+bzip2 -d core.txt.gz.bzip2
+gzip -d core.txt.gz
+cat core.txt: Unwr4pp3d_Thr33

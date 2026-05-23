@@ -1,0 +1,7 @@
+Log in and get kicked. The server runs a
+ startup script that boots you on arrival.
+ Read a file without ever getting an interactive shell.
+
+goal: find password for ghost18
+
+ssh ghost17@204.168.229.209 -p 2222 'cat flag': Sh3ll_D3n13d

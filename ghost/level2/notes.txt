@@ -1,0 +1,9 @@
+KAEL compartmentalized everything.
+ The investigation folder has reports — but not what you need.
+ He kept active leads somewhere else. Somewhere less obvious.
+
+goal: find password for ghost3
+
+investigation/.leads/.source_omega: H1dd3nInSh4dow
+investigation/.leads/.source_alpha: 7a4e91c63d2f
+investigation/.leads/.source_beta: bb50d8e4a11c
