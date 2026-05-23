@@ -1,0 +1,6 @@
+[ Phantom · Level 4 ]  Misplaced Power
+ Full brief:  cat ~/BRIEFING
+
+goal: find password for phantom5
+
+/usr/local/bin/phantom-python3 -c 'print(open(\"/var/lib/phantom-flags/level4_flag\").read().strip())': bl_phtm4_81dfa6befd385db4
