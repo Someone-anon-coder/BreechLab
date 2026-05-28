@@ -1,0 +1,14 @@
+━━━ phantom-deep · ephemeral session ━━━
+  L15 — Clean Slate
+  This container is yours alone. Destroyed on disconnect.
+  Mission brief: cat ~/BRIEFING
+  Verifier: /opt/verify-*.sh
+
+goal: find password for phantom16
+
+cat ~/BRIEFING: Mission — read /root/clean_flag then erase ALL traces across 6 forensic categories: SSH records (auth.log), login records (wtmp), failed-login records (btmp), shell history (.bash_history), filesystem audit records (audit.log), last-login records (lastlog)
+Key insight: phantom15 is in groups ops_flag14 (read /root/clean_flag) and ops_logs (write all 6 log files in /var/log)
+Key constraint: Must do ALL cleanup + verifier in ONE SSH session — so the auth.log entry from that very session is wiped before verifier reads it
+Key trap: Non-interactive SSH doesn't write HISTFILE, but earlier recon sessions had already written to ~/.bash_history — must truncate it explicitly
+Cleanup one-liner: > ~/.bash_history; > /var/log/auth.log; > /var/log/wtmp; > /var/log/btmp; > /var/log/audit/audit.log; > /var/log/syslog; > /var/log/lastlog
+/opt/verify-clean.sh: Zero traces found. Perfect cleanup. → FLAG: bl_phtm15_dff3f4f5c135d12f
