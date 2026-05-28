@@ -1,0 +1,12 @@
+ [ Phantom · Level 11 ]  Token Hunter
+ Full brief:  cat ~/BRIEFING
+
+goal: find password for level12
+
+cat ~/BRIEFING: Mission: find tokens — JWT, API keys, cloud creds, service tokens
+env && cat ~/.bash_history: Nothing useful — env was clean, history empty
+ls -la ~/ + check ~/.aws, ~/.config: No cloud config dirs existed
+find /opt /etc /var ... -name "*.env" -o -name "*.token": Found /opt/webapp/.env (no perms) and /opt/webapp/repo/.env
+cat /opt/webapp/repo/.env: Values were REDACTED — scrubbed, but a .git dir existed
+git log --oneline (in /opt/webapp/repo): Two commits: initial config → remove secrets
+git show 7240242:.env: APP_SECRET=bl_phtm11_dcad1d818b255fe7 — the flag!
