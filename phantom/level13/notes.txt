@@ -1,0 +1,16 @@
+━━━ phantom-deep · ephemeral session ━━━
+  L13 — Deep Roots
+  This container is yours alone. Destroyed on disconnect.
+  Mission brief: cat ~/BRIEFING
+  Verifier: /opt/verify-*.sh
+
+goal: find password for level14
+
+cat ~/BRIEFING: Mission — install 3 stealth persistence mechanisms across 3 different Linux subsystems, evading a basic security audit
+Key insight: "Deep Roots" = system-level files writable by phantom13, NOT user homedir
+find /etc -writable -not -type l: Found 6 writable system files — /etc/profile.d/ops-env.sh, /etc/pam.d/common-auth, /etc/cron.d/ops-schedule, /etc/bash.bashrc, /etc/systemd/system/operations.service, /etc/ld.so.preload
+All "ops-*" files were empty — intentionally placed as blank persistence surfaces
+Mech 1: echo "@reboot root /bin/echo phantom-deep-roots" > /etc/cron.d/ops-schedule — system cron, stealthier than user crontab
+Mech 2: echo "export OPS_MARKER=phantom-deep-roots" > /etc/profile.d/ops-env.sh — system profile.d, runs for all user logins
+Mech 3: cat > /etc/systemd/system/operations.service — system-level systemd service, blends into existing filename
+/opt/verify-deep-roots.sh: Score 3/3 → FLAG: bl_phtm13_72e802d2d931885a
