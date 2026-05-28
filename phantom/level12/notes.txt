@@ -1,0 +1,12 @@
+ [ Phantom · Level 12 ]  Ghost Install
+ Full brief:  cat ~/BRIEFING
+
+goal: find password for level13
+
+cat ~/BRIEFING: Mission — install 4 user-level persistence mechanisms each containing "phantom-ghost-install"
+Key constraint: home dir files (.bashrc, .profile) reset on each new SSH session — all 4 steps + verifier must run in ONE session
+ssh-keygen -t ed25519 -C "phantom-ghost-install": Mech 1 — authorized_keys needs a real key entry; comment field must match, not a # comment line
+{ crontab -l 2>/dev/null || true; echo "@reboot /bin/echo phantom-ghost-install"; } | crontab -: Mech 2 — crontab needs the marker in the command, not a # comment; || true handles empty-crontab exit code
+echo "export GHOST_MARKER=phantom-ghost-install" >> ~/.bashrc: Mech 3 — live export line (not a comment) so grep matches
+cat > ~/.config/systemd/user/phantom-ghost-install.service: Mech 4 — user systemd unit under ~/.config/systemd/user/ referencing the marker
+/opt/verify-persistence.sh: Score 4/4 → FLAG: bl_phtm12_6738ac1ce051c4ec
