@@ -1,0 +1,12 @@
+ [ Phantom · Level 8 ]  Live Injection
+ Full brief:  cat ~/BRIEFING
+
+goal: find password for phantom9
+
+cat ~/BRIEFING: a long-running python3 daemon (pid 104526) owned by phantom8 holds the secret in memory; it called prctl(PR_SET_PTRACER_ANY) to allow same-uid /proc attach; secret never written to disk
+
+ps aux | grep phantom8: found daemon at pid 104526 — python3 process that reads secret from stdin then loops forever
+
+cat /proc/104526/maps: heap at 5a812b842000-5a812b8ef000, plus other rw regions
+
+python3 -c "read /proc/<pid>/mem for all rw regions, search for bl_phtm8": bl_phtm8_8290163e0cc52c71
