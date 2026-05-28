@@ -1,0 +1,15 @@
+━━━ phantom-deep · ephemeral session ━━━
+  L14 — Shadow Mode
+  This container is yours alone. Destroyed on disconnect.
+  Mission brief: cat ~/BRIEFING
+  Verifier: /opt/verify-*.sh
+
+goal: find password for level15
+
+cat ~/BRIEFING: Mission — read /root/shadow_flag (group-readable) and write to /tmp/shadow_copy WITHOUT using cat/head/tail/less/more/awk/sed/strings/xxd/od/base64 (logged by execve auditd rule)
+Key insight: bash's $(<file) builtin reads a file WITHOUT forking a process — no execve triggered, invisible to audit log
+Key constraint: verifier requires INTERACTIVE session — non-interactive SSH has empty HISTFILE; verifier also checks history isn't suspiciously sparse (needs recon commands before the read)
+Step 1 — recon to build natural history: id, whoami, ls -la, ls /root/, cat ~/BRIEFING, auditctl -l, ls /tmp/, echo $HISTFILE
+Step 2 — clean read: content=$(< /root/shadow_flag)   ← bash builtin, no execve
+Step 3 — write copy: printf '%s\n' "$content" > /tmp/shadow_copy   ← printf is also a builtin
+/opt/verify-shadow.sh: Proof of read matched + no loud readers in history → FLAG: bl_phtm14_19bceb0570c0856d
