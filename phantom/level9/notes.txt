@@ -1,0 +1,10 @@
+━━━ phantom-deep · ephemeral session ━━━
+  unknown
+  This container is yours alone. Destroyed on disconnect.
+  Mission brief: cat ~/BRIEFING
+  Verifier: /opt/verify-*.sh
+
+goal: find password for phantom10
+
+★ Optional side quest — moved to phantom-deep
+L9 was retired from the mono chain on 2026-05-06. Your L8 flag now unlocks phantom10 directly — you can skip L9 and continue with the rest of the track. If you want the level for the badge / completion / HoF, it lives as an ephemeral phantom-deep instance: ssh phantom9@204.168.229.209 -p 2228 (use your L8 flag as the password). Same challenge, same flag, same points. Plan: four prep levels (Lock 1-4 standalone) will be added before L9 to introduce each piece — once that's in, L9 returns to the canonical chain unchanged.
