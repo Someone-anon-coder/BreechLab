@@ -1,0 +1,64 @@
+ [ Specter I · Level 0 ]  Paper Trail
+ Full brief:  cat ~/BRIEFING
+
+goal: find password for spectre1
+
+Login: specter0 @ 204.168.229.209:2230, password = bootstrap token in overview_1.txt
+Each SSH connection spawns a fresh ephemeral container — do all work + verifier run in ONE session.
+
+BRIEFING summary:
+  Mission: passive OSINT recon against target-corp.local (no active scanning).
+  Collect 8 intel items + 2 corroborating source families each (registration_date needs only 1 —
+  "only one canonical path"), write to /tmp/intel.yaml, run /opt/verify-paper-trail.sh.
+  Verifier needs BL_TOKEN exported (dashboard has none for this level — the specter0 login
+  token itself works as BL_TOKEN).
+  Verifier is server-side ("oracle" grading) and rate-limited (~8s cooldown) to block
+  differential brute-forcing. It scores ~15 discrete checks: value + source-family pair per
+  field, except registration_date (1 check). Feedback is only "FAIL:<n>", no per-field detail.
+
+Mock OSINT services found on the box (all real-world tool names, resolve via internal DNS):
+  whois target-corp.local          → current WHOIS (registrar, decoy transfer date)
+  nc whoxy.com 43 "target-corp.local" → historical WHOIS archive (real creation date, pre-transfer registrar)
+  curl http://crt.sh/search?domain=target-corp.local → mock CT log (subdomain candidates, S3/CDN certs)
+  curl http://github.local/target-corp/platform/README.md → mock GitHub mirror
+  curl http://ci.target-corp.local/build-log.txt → public CI build log (leaks internal host + S3 usage)
+  curl -X POST http://hibp-2022/2023/2024.local/lookup -d '{"domain":"target-corp.local"}' → breach data per year
+  dig / curl target-corp.local and guessed subdomains → dns-direct + web-recon
+
+Key traps:
+  - Current WHOIS creation date (2024-07-15) is explicitly disclaimed as the post-transfer
+    date — real creation date only in the whois-archive (2019-03-22). Using the decoy date
+    trips a soft-rejection canary.
+  - hibp-2024 shows alex.morales with password "alexm2020" marked "UNVERIFIED RUMOR" — a
+    decoy. The correct, verified-plaintext credential is alex.morales / Summer2024! from
+    hibp-2023 (corroborated across 3 independent pastes).
+  - CT logs only cover target-corp.COM (same org's public domain), not .local — subdomain
+    names (ci, dev) found there still transfer to the .local domain and must be confirmed
+    via direct DNS resolution (dns-direct) to count as "real subdomains".
+  - The gotcha field: breach_credential's second source family. web-recon / ci-page /
+    github-mirror (identity corroboration) all read as valid but are WRONG — verifier wants
+    hibp-2024 as the second family (same person independently flagged in a second breach-year
+    dataset, even though that dataset's password is the decoy).
+
+Final /tmp/intel.yaml (submitted with BL_TOKEN=<specter0 login token> exported):
+  registrar:          BlockchainRegistry Inc.
+  registration_date:  2019-03-22
+  subdomains:         [ci.target-corp.local, dev.target-corp.local]
+  email_format:       first.last@target-corp.local
+  breach_credential:
+    user:     alex.morales@target-corp.local
+    password: Summer2024!
+  internal_host:      buildbox01.corp.internal
+  s3_bucket:          s3-staging
+  cloud_provider:     AWS
+  sources:
+    registrar:           [whois-current, whois-archive]
+    registration_date:   [whois-archive]
+    subdomains:          [dns-direct, ct-logs]
+    email_format:        [web-recon, ci-page]
+    breach_credential:   [hibp-2023, hibp-2024]
+    internal_host:       [ci-page, github-mirror]
+    s3_bucket:           [ci-page, ct-logs]
+    cloud_provider:      [ci-page, ct-logs]
+
+/opt/verify-paper-trail.sh → FLAG: bl_118e30695da3ebfeb2624f9cf229b1ab

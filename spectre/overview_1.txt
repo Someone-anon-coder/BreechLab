@@ -1,0 +1,41 @@
+Specter I — OSINT
+Fourteen levels. Passive intelligence at professional grade. Built for operatives who will be asked to investigate real targets, not pass a quiz.
+
+
+BREIFING
+Most OSINT training stops at typing queries into search engines — ten percent of the job. The other ninety — source independence, calibrated confidence, OPSEC against a target who counter-investigates, defensible documentation — is where professionals live and where almost no public course goes.
+Specter I goes there. By the capstone, your findings hold under legal scrutiny, your tradecraft survives adversarial counter-intelligence, and your report meets Berkeley Protocol standards.
+
+
+WHAT MAKES THIS DIFFERENT
+- Operational discipline graded throughout. EXIF leaks, persona-real-account cross-pollination, query timing patterns — all detected and scored. No other training treats analyst OPSEC as a graded outcome.
+- Adversarial targets. From level twelve onward you face counter-intelligence: canary tokens, dangle accounts, watermarked documents, fake leaks. Detect the trap or trip the alarm.
+- Calibrated confidence required. Every claim from level four onward carries a word-of-estimative- probability rating (Admiralty A1–F6). Overconfident wrong answers cost more than honest uncertainty.
+- Berkeley Protocol report at graduation. The capstone requires a written intelligence package with chain of custody, source documentation, and alternative-hypothesis consideration. Defensible methodology, not just a flag.
+- Quarterly errata, public dashboard. OSINT tools rot fast. Twitter API, CrowdTangle, half of 2018's stack — all dead. Our errata page is public; we re-shoot levels when the underlying primitive shifts. No 2018 advice in 2026 wrapping.
+
+
+TOOLKIT
+Every Specter I ephemeral ships with the core OSINT/recon toolkit pre-installed. No package install required, no internet to PyPI from inside — everything you need to solve the level is on disk when you connect.
+
+- HTTP & download: curl, wget
+- DNS & whois: dig, nslookup, whois
+- JSON & YAML: jq, python3 -m json.tool, python3-yaml
+- Text & viewing: cat, less, head, tail, grep, awk, sed, sort, uniq
+- Files & search: find, file, xargs
+- Net diagnostics: nc (netcat), ip, ss
+- Code & scripting: git, python3, python3-requests
+- Editors: vim, nano
+- Level-specific additions: L6 ships exiftool + imagemagick for image forensics; L7 adds python3-pil for synthetic-media analysis; L10 adds binwalk, gnupg2, openssl, and routes via per-spawn Tor side-cars. Each level's brief lists what is additionally available.
+
+Verifier: every level ships a local /opt/verify-<slug>.sh (e.g. /opt/verify-paper-trail.sh, /opt/verify-image-geo.sh) that consumes the evidence files described in the brief and prints either findings or the level flag. Per-player flags — sharing them won't unlock anyone else's chain.
+
+
+Host	204.168.229.209
+Levels L0–L13	ports 2230–2243 (one per level)
+L0 entry user	specter0
+L0 password	bootstrap token (FCKfwSdA6YfX1w5G1GCFpFzfSdWykFG2Xg8YC1u-G4A)
+
+
+From L1 onward: solve the level, take the flag the verifier prints, and submit it inline on the level's row in the table below. The reveal gives you the next level's SSH password — per-player, and re-issuable from your dashboard.
+Each SSH connection spawns a fresh ephemeral container; disconnect tears it down.
