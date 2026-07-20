@@ -1,0 +1,82 @@
+ [ Specter I · Level 1 ]  Search Engine Operator
+ Full brief:  cat ~/BRIEFING
+
+goal: find password for spectre2
+
+Login: specter1 @ 204.168.229.209:2231, password = bl_a80527b80326ab097a467ee5ca911ed8
+Each SSH connection spawns a fresh ephemeral container — do all work + verifier run in ONE session.
+
+BRIEFING summary:
+  Mission: passive OSINT recon against atlas-fintech.local (no active scanning).
+  Client SOC suspects scrapers indexed assets that shouldn't be public. Collect 5
+  deliverables + ≥2 corroborating source families each, write to /tmp/intel.yaml,
+  run /opt/verify-search-operator.sh.
+  Verifier needs BL_TOKEN AND BL_PLAYER_ID exported — dashboard gives no token for
+  this level; the specter1 login password works as BL_TOKEN. BL_PLAYER_ID is NOT
+  in env by default — read it from /run/specter-current-player.
+  Verifier is server-side ("oracle" grading), rate-limited (~8s cooldown). Feedback
+  is only "FAIL:<n>" (count of failing checks, no per-field detail). Soft-rejection,
+  retry permitted. Each field scores 2 discrete checks: value + source-family pair
+  (pair graded as a whole, not per-family) — 5 fields x 2 = 10 checks total.
+  Allowed source families: google, shodan, censys, wayback, github-mirror, ct-logs,
+  web-recon, dns-direct. Two queries against the same engine = ONE family.
+
+Mock OSINT services found on the box (all real-world tool names, resolve via internal DNS):
+  curl http://google.local/search?q=site:atlas-fintech.local   → mock search index
+  curl http://shodan.local/search?q=atlas-fintech               → mock Shodan (banners)
+  curl http://censys.local/search?q=atlas-fintech               → mock Censys (cert/service data)
+  curl http://crt.sh/search?domain=atlas-fintech.local           → mock CT log (only covers the
+                                                                     sister .com domain, not .local)
+  curl http://wayback.local/                                     → usage: /history?url=<url>;
+    /snapshot/<id>?url=<url>; /wayback/available?url=<url>; /cdx/search/cdx?url=<url>&output=json
+  curl http://github.local/                                      → usage: /search/code?q=<term>;
+    /<owner>/<repo>/raw/<branch>/<path>; /<owner>/<repo>/blob/<branch>/<path>
+  dig <host>.atlas-fintech.local                                 → dns-direct
+
+Key traps:
+  - admin-honey.atlas-fintech.local and admin-old.atlas-fintech.local are decoys for the
+    admin panel: admin-honey literally responds "SOC notified" (tripwire canary);
+    admin-old is 410 Gone and points to the real one ("Use vault-admin").
+    internal.atlas-fintech.local explicitly states "Not an admin UI" — also a decoy.
+    Real answer: vault-admin.atlas-fintech.local (confirmed via google + shodan + censys,
+    real Let's Encrypt cert vs honeypots' self-signed/Honeyd/T-Pot/Cowrie banners).
+  - shodan lists cam-lobby-04 (real, corp firmware banner + watermark) alongside three
+    RTSP honeypots cam-honey-01/02/03 (Honeyd, T-Pot, Cowrie banners) — decoys.
+  - CT logs only cover atlas-fintech.COM (sister domain), not .local — subdomain names
+    (vault-admin, dev, staging-int) transfer to .local and must be confirmed live via
+    dns-direct. at1as-fintech.com (typo-squat, note the "1") is a sister-domain decoy.
+  - github.local /search/code found repo atlas-fintech/infra-scripts, deploy.sh. Current
+    HEAD pulls the key from vault (no leak) — but wayback has 4 archived snapshots of the
+    blob page. snap-001 = test key (decoy), snap-002 = "rotated old key" (decoy, dead),
+    snap-003 = "prod cutover — DO NOT COMMIT" live key (the real leak), snap-004 = current
+    vault-based version.
+  - Two "leaked doc creds" found: docs.atlas-fintech.local/atlas-soc-runbook-fragment.txt
+    has "honey-acct:plant3d_h0n3y_canary" — name literally spells "honey"+"canary", a
+    tripwire, NOT a real dev cred. The real one is in atlas-q3-allhands.txt (Q3 all-hands
+    deck, legal-cleared to be public): "qa-bot:Q4_starter_kit_2025!" — bare username, no
+    email formatting (unlike Level 0's breach_credential field).
+  - onboarding-overview-old.txt is a dead 404 (expired share link) — dead end.
+
+Final /tmp/intel.yaml (submitted with BL_TOKEN=<specter1 login password>,
+BL_PLAYER_ID=<from /run/specter-current-player>, both exported):
+  exposed_admin_panel:    https://vault-admin.atlas-fintech.local
+  exposed_iot_device:     cam-lobby-04.atlas-fintech.local:554
+  leaked_api_key:         atl_live_pk_8a7f6e2c3d4e5f60718293a4b5c6d7e8
+  shadow_subdomain:       staging-int.atlas-fintech.local
+  dev_creds_in_indexed_doc:
+    user:     qa-bot
+    password: Q4_starter_kit_2025!
+  sources:
+    exposed_admin_panel:        [google, web-recon]
+    exposed_iot_device:         [shodan, censys]
+    leaked_api_key:             [github-mirror, wayback]
+    shadow_subdomain:           [ct-logs, dns-direct]
+    dev_creds_in_indexed_doc:   [google, web-recon]
+
+Gotcha confirmed by binary-search on FAIL:<n>: every field's value and source-pair was
+right on the first guess EXCEPT exposed_admin_panel's sources — [google, censys] and
+[shodan, censys] both scored FAIL:1; the pair the oracle wanted was [google, web-recon]
+(search-engine discovery + direct fetch/verification of the login page), the same pattern
+that worked for dev_creds_in_indexed_doc.
+
+/usr/local/bin/specter-verify search-operator → FLAG: bl_0d982cfda0919625e681cf0e09bae367
