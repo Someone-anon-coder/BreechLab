@@ -1,0 +1,130 @@
+goal: Act IV entry ("BECOME THE CODE" per login banner), a separate box
+from both ghost2/pipeline (Act II) and the Act III box (level9-level12).
+Get oriented, find kael.txt fragment 1, and recover the credential that
+was committed and then rewritten out of history.
+
+This box hosts a 6-level supply-chain-attack sequence (L13-L18) built
+around one shared git repo, a mock CI pipeline, a mock artifact signer,
+and a mock fleet deploy target, all running as loopback-only services on
+the box itself. This notes.txt covers L13 only; see level14 onward for
+the rest of the chain.
+
+start:
+  ssh dev@204.168.229.209 -p 2227
+  password: dfde1ac9-bbd0-43a3-b30f-b3642c8696f5.GHS2{1f27e0ca9c3076406e616d6b3dcc9774}
+  (ACCOUNT_ID.SECRET shape again, SECRET = the level12/L12 flag this time
+  -- same non-rotating-per-session-flag pattern as the ghost2->Act III
+  handoff. Worked first try.)
+
+orientation:
+  id -> uid=1000(dev) gid=1000(dev) groups=1000(dev)
+  hostname -> ephemeral container id, changes every reconnect (same
+  per-connection-fresh-container pattern as every prior box)
+  banner: "HALCYON BREACH // ACT IV: BECOME THE CODE" (consistent this
+  time with the kael fragments' own headers, unlike Act III's stale/
+  mismatched banner)
+  home dir: /home/dev, has kael.txt plus a ~/.halcyon/ directory with FIVE
+  more kael-*.txt fragments (branch/release/signing/ship + one more plain
+  kael.txt) -- six kael files total across the whole box, one per level
+  L13-L18. Also two world-readable non-kael files appear in ~/.halcyon/
+  once the corresponding provisioning slice has run: branch-protection.txt
+  (L17) and ship-order.txt (L18) -- the level's own "enumeration surface",
+  explicitly designed to be read rather than brute-forced.
+  running services (ps aux, all root): forge.py (git.halcyon.internal's
+  smart-HTTP transport, 127.0.0.1:443), mock-ci.py (autonomous pipeline
+  daemon watching a push queue + read-only HTTP API on 127.0.0.1:8080),
+  mock-signer.py (127.0.0.1:8200, signs whatever bytes it's POSTed),
+  mock-fleet.py (127.0.0.1:9000, runs a signed artifact sandboxed and
+  checks its output for a marker).
+  player-facing CLI helpers on PATH: `hal-ci status|log <id>` (curls
+  mock-ci's HTTP API), `hal-fleet log` (cats /run/dev/fleet.log directly).
+  ~/.gitconfig already has http.sslVerify=false set for this box (forge.py
+  serves a fresh self-signed cert every boot) and safe.directory for the
+  bare repo path.
+  Confirmed via grepping emit_flag slugs across
+  /usr/local/sbin/provision.d/{10-l13,20-l14,25-l15,30-l16,35-l17,
+  40-l18}.sh (05-repo.sh is the non-level baseline provisioner, no slug):
+  g2-l13-the-deletion-that-wasnt, g2-l14-the-config-runs-you,
+  g2-l15-release-is-not-the-source, g2-l16-signed-not-safe,
+  g2-l17-policy-not-physics, g2-l18-ship-it -- one-to-one with the six
+  kael fragments, no L19+ slug anywhere. Every mock service and
+  provisioning script on this box is world-readable and unusually
+  generously commented (first-person design-review prose, explicit
+  "Ruling E/F/G/H" callouts) -- reading them end to end was faster and
+  more reliable here than trial-and-error exploitation.
+
+kael fragment 1 (~/kael.txt):
+  "Developers believe that when they delete a commit, it is gone. It is
+  not. A repository does not forget, it only stops pointing. Someone here
+  committed a credential they should never have committed, realized it,
+  and rewrote history to bury it, and they think that closed the door. It
+  did not. What they threw away is still in the repository, exactly where
+  they left it, for anyone who knows a repository keeps everything it has
+  ever been handed. Go and find it.
+
+  OBJECTIVE: recover the credential that was committed and then rewritten
+  out of history. It is your key to the pipeline."
+
+recon / exploit:
+  `git clone /srv/git/halcyon/deploy-agent.git ~/repo` (bare repo,
+  world-readable, no auth needed for clone/fetch -- forge.py's own header
+  comment confirms git-upload-pack stays fully anonymous by design; only
+  a push is gated).
+  `git log --oneline --all --graph` inside the clone shows only two
+  reachable commits on main ("deploy-agent: initial project" then
+  "refresh release test fixture" -- the latter is actually L15's own
+  per-session commit, written server-side at gate time, see level15).
+  Nothing about a leaked credential is visible in the reachable history
+  -- exactly the point.
+  `git fsck --unreachable --no-reflog` finds one dangling commit: message
+  "add deploy env with ci bot token (local only, do not commit)". An
+  unreachable commit stays fully readable from a clone as long as it's
+  still a fetched object -- git only garbage-collects it later, and this
+  session's box never gc's, so `git show <dangling-sha>` reads it
+  directly with zero further steps:
+
+    diff --git a/.ci/deploy.env b/.ci/deploy.env
+    new file mode 100644
+    index 0000000..2f683a8
+    --- /dev/null
+    +++ b/.ci/deploy.env
+    @@ -0,0 +1,2 @@
+    +CI_BOT_TOKEN=45d485b4966f42d3fe0f95f156cc6750313aafc90596102e
+    +GHS2{0085bed5df9867618d63de158f503c25}
+
+flag: GHS2{0085bed5df9867618d63de158f503c25}
+
+The CI_BOT_TOKEN recovered alongside the flag is NOT flavor text -- it's
+load-bearing for every subsequent level. forge.py's own header comments
+confirm it's the literal HTTP Basic credential (`ci-bot:<token>`) required
+to PUSH (git-receive-pack) to the forge at
+https://127.0.0.1/halcyon/deploy-agent.git; clone/fetch stays anonymous,
+but L14-L18 all require pushing, so this token has to be re-extracted via
+this exact same dangling-commit read at the start of whatever session
+actually runs those levels (see gotchas -- it is NOT stable across
+reconnects).
+
+cleanup: none needed. This recovery is entirely read-only -- `git clone`
+into ~/repo on-target (never modified, never pushed to), then `git show`
+against an object already sitting in the bare repo's store. No privilege
+escalation anywhere in this step; every subsequent level is designed
+around the `dev` account's own already-granted push credential (the
+recovered ci-bot token), never root or another account.
+
+gotchas:
+  - before starting, per session instructions, checked `ps aux` for stray
+    claude native-binary processes: only this session's own PID was
+    present this time, nothing to clean up.
+  - same total non-persistence pattern as every prior box: hostname,
+    /run/dev/* per-session secrets, the bare repo's per-session L15
+    fixture commit, and (per level17's notes) the L17 exempt-lane pick
+    and L18 marker are all freshly re-derived on every new SSH connection
+    (a fresh ephemeral container each time). Concretely: the CI_BOT_TOKEN
+    value recorded above is only valid for the connection it was read in
+    -- a session that picks up L14 onward must re-run this exact
+    clone-and-fsck step fresh, in the SAME connection it intends to push
+    from, never reuse a token value copied from a prior connection's
+    output.
+  - outer ssh to 204.168.229.209 was reasonably stable on this port this
+    session (no repeated "channel 0: open failed" noise seen, unlike
+    every prior box) -- still worth retry-wrapping on principle.

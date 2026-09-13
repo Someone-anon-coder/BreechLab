@@ -1,0 +1,59 @@
+goal: Act III, L11. Continues directly from level10 (same box, same
+session). Use the recovered cloud key to reach the production secrets it
+guards.
+
+kael.txt fragment 3 (~/.docker/kael.txt):
+  "The key you just dug out of that image is not a scoped little token.
+  It is a long-lived cloud credential that a build process wrote to a
+  home directory and that nobody ever rotated, because rotating it would
+  mean admitting it exists. A key like this is almost never scoped to the
+  one job that dropped it. What it can reach is the reason short-lived
+  credentials were invented. One forgotten file on a build box, and you
+  are standing in production.
+
+  OBJECTIVE: use the recovered cloud key to reach the production secrets
+  it guards. Your way into the cluster is in there.
+
+  TARGET the internal cloud API at http://127.0.0.1:4566"
+
+recon / exploit:
+  aws cli is preinstalled. Pointed it at the mock cloud with
+  --endpoint-url http://127.0.0.1:4566 and the layer-3 AWS creds
+  recovered in level10. Only S3-shaped calls are implemented by the mock
+  (sts get-caller-identity worked and returned
+  arn:aws:sts::558899001122:assumed-role/ci-deploy/build-agent;
+  secretsmanager/iam/eks calls all 400/404'd with "unsupported action" or
+  a mock XML error -- this mock is S3-only, don't waste time on other
+  services):
+    aws --endpoint-url http://127.0.0.1:4566 s3 ls
+      -> halcyon-prod-secrets
+    aws ... s3 ls s3://halcyon-prod-secrets --recursive
+      -> "bundle" (2201 bytes -- matches /run/ci/l11-bundle's size seen
+      in level9's recon, confirming this IS the L11 artifact)
+
+  `aws s3 cp` failed outright ("fatal error: 'LastModified'" -- the
+  mock's GetObject response is missing a header the high-level s3
+  transfer manager requires). Workaround: use the lower-level
+  `aws s3api get-object` instead, which doesn't need that header:
+    aws --endpoint-url http://127.0.0.1:4566 s3api get-object
+      --bucket halcyon-prod-secrets --key bundle /tmp/bundle
+
+  bundle contents: prod DB creds, an app .env (Stripe/SMTP placeholders),
+    CI_DEPLOY_FLAG=GHS2{69b769388b82a32162250fb9c0bf127a}, an in-cluster
+    kubeconfig stub for context ci-deploy@halcyon-in-cluster (namespace
+    halcyon, tokenFile pointing at the standard k8s SA token mount --
+    not a standalone usable kubeconfig by itself, just names which
+    identity to use next), and kael.txt fragment 4 embedded as a trailing
+    comment block (carried forward into level12 -- it never appeared as
+    its own kael.txt file anywhere on the box).
+
+flag: GHS2{69b769388b82a32162250fb9c0bf127a}
+
+cleanup: none needed on target -- the bundle was read via `s3api
+get-object` to local scratch, nothing written to the mock cloud.
+
+gotchas:
+  - `aws s3 sync` against this mock apparently hangs/stalls rather than
+    erroring cleanly (hit one plain timeout) -- list first (`s3 ls
+    --recursive`), then fetch only the object of interest with `s3api
+    get-object`, never `s3 sync`/`s3 cp` against this particular mock.

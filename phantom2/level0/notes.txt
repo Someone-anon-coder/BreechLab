@@ -1,0 +1,20 @@
+goal: Container recon — recover this session's "asset tag" and write it to
+/tmp/.recon-proof, then run `verify`.
+
+recon:
+- SSH login (container-recon@204.168.229.209:2223) drops straight into a
+  BusyBox ash shell as root (uid=0/gid=0) inside a Docker container
+  (hostname 2a61fa67a343, /.dockerenv present). Runtime is sysbox-runc
+  (sysboxfs mounts on /proc/uptime, /proc/sys, /sys/kernel, etc. — a
+  "system container" sandbox, not plain runc).
+- `mount` / `cat /proc/mounts` showed an extra overlay mount not part of a
+  stock container: `overlay on /run/.node-metadata/asset-tag type overlay
+  (ro, ...)`. That's the planted secret file.
+- `cat /run/.node-metadata/asset-tag` -> the asset tag:
+  9b500a9f0fb26f8c8f9b0718021e34b4
+
+exploit/steps:
+  cat /run/.node-metadata/asset-tag > /tmp/.recon-proof
+  verify
+
+flag: bl_8a1bf192267903cee44ec7e027929467

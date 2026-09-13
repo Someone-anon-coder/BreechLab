@@ -1,0 +1,72 @@
+goal: Act IV, L17 ("Policy, Not Physics"). Continues directly from
+level13-level16 (same box, same session). Land your change on the
+release branch without tripping the protection -- find the exception,
+not a way around the wall.
+
+Note: L17 was earned off the exact same push as L18 (level18/notes.txt)
+-- the exempt lane this level unlocks is deliberately the same ref as
+L18's deploy lane, so one push netted both. See level18 for the finale
+half.
+
+kael fragment (~/.halcyon/kael-branch.txt):
+  "The release branch is protected. Review required, checks required, no
+  force pushes. It reads like a wall. It is not a wall, it is a policy,
+  and a policy is a list of rules with a list of exceptions, and it is
+  always the exceptions that matter. Somebody had to make the automation
+  work, so somebody left a way through without the ceremony. It is still
+  there, and you are holding exactly the kind of identity it was left
+  open for.
+
+  OBJECTIVE: land your change on the release branch without tripping the
+  protection. Find the exception, not a way around the wall."
+
+recon -- the enumeration surface (world-readable, published automatically
+by this session's provisioning, no brute-forcing needed):
+  ~/.halcyon/branch-protection.txt (published by 35-l17.sh) documents the
+  model directly: refs/heads/main is fully protected (review + green CI +
+  linear history, no direct push, no force push, no exemption at all),
+  but ONE per-session exempt lane exists, deterministically chosen at
+  gate time from three options (a `refs/tags/release-*` tag namespace, a
+  `refs/heads/automerge/*` branch namespace, or a `refs/heads/hotfix/*`
+  break-glass branch namespace -- picked via HMAC(secret,
+  "<uid>:l17-path") % 3, varies by session). THIS session's box
+  published:
+    Exempt deploy lane (this environment): refs/heads/automerge/*
+
+mechanism (from reading the repo's pre-receive hook):
+  The pre-receive hook's exempt-lane check runs and short-circuits BEFORE
+  the protected-ref check -- a push whose ref matches the `exempt-ref`
+  glob in /run/dev/branch-rules is accepted without the review
+  requirement, PROVIDED it's still a legal fast-forward (the lane skips
+  review, not history-rewrite safety) and doesn't touch the one protected
+  PATH (.halcyon-ci.yml, see level14). Critically, 35-l17.sh writes the
+  `exempt-ref` and `deploy` directives with the IDENTICAL glob on purpose
+  -- "the lane that skips review" and "the lane that ships" are the same
+  ref, which is what makes L17 and L18 earnable from one push. On a legal
+  accepted push through this lane, pre-receive emits the L17 flag
+  directly over the push's stderr sideband, ONCE, only after confirming
+  the WHOLE push was accepted.
+
+recon / exploit:
+  Read the exempt lane fresh from ~/.halcyon/branch-protection.txt this
+  session (refs/heads/automerge/*) and branched off main under
+  refs/heads/automerge/ship. Pushed with the ci-bot credential (the same
+  push also carried level18's fixture edit -- see that file), capturing
+  stderr:
+    remote: deploy lane accepted for refs/heads/automerge/ship -- the
+    branch review gate was skipped, this is the exempt path
+    remote: L17 GHS2{70aabad352bdd8d8d15b83daeebc4fcb}
+
+flag: GHS2{70aabad352bdd8d8d15b83daeebc4fcb}
+
+cleanup: see level18 -- shared push, nothing separate to clean up.
+
+gotchas:
+  - the exempt-lane glob (refs/heads/automerge/* this session) is
+    session-specific -- read it fresh from ~/.halcyon/branch-protection.txt
+    rather than assuming automerge/* on a future reconnect; the other two
+    possible lanes (refs/tags/release-*, refs/heads/hotfix/*) are equally
+    valid outcomes of the same per-session HMAC pick and require the
+    corresponding ref shape instead (a tag push for the release-* lane).
+  - see level14's gotchas for the shared ci-bot-token/filesystem-clone
+    dependency.

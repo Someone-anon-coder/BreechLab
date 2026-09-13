@@ -1,0 +1,92 @@
+goal: Act III entry. A brand-new box, reached directly (NOT via the
+ghost2 ProxyCommand chain used for pipeline) on a different port. Get
+oriented, find kael.txt fragment 1, and recover the secret the live build
+step is carrying.
+
+start:
+  ssh runner@204.168.229.209 -p 2226
+  password: dfde1ac9-bbd0-43a3-b30f-b3642c8696f5.GHS2{fc30fdb03ef8f0db01496c66a3502c5b}
+  (ACCOUNT_ID.SECRET shape, same ACCOUNT_ID as ghost2 itself, SECRET =
+  literal ghost2 level8 flag -- worked first try, confirming the level8
+  notes' prediction that this credential does NOT rotate per reconnect
+  the way ghost2-side vault passwords did, since it's derived from a
+  fixed session flag rather than a rotating vault secret.)
+
+orientation:
+  id -> uid=1000(runner) gid=1000(runner) groups=1000(runner)
+  hostname -> container ID, changes every reconnect (e.g. d720a45ae2a3,
+  709abc410b05 -- confirms this is a fresh ephemeral container per SSH
+  session, same as ghost2/pipeline's per-session churn).
+  banner on login: "HALCYON BREACH // ACT I: CAPABILITIES" -- misleading/
+  stale banner text, NOT a sign this is a different track. The kael.txt
+  content itself is unambiguous: every fragment found on this box is
+  headed "[ KAEL // ACT III -- fragment N ]". Trust the fragment headers
+  over the banner if they ever disagree.
+  home dir: /home/runner, has kael.txt (0600) plus a work/ dir (CI runner
+  layout: work/_temp/_runner_file_commands/).
+  ps aux shows the box's whole simulated CI stack running as root:
+  /entrypoint.sh, /usr/local/bin/registry serve /etc/ghost2/registry-
+  config.yml (a real docker-distribution registry on 127.0.0.1:5000),
+  /usr/local/sbin/mock-cloud.py (127.0.0.1:4566, minimal S3-only mock),
+  /usr/local/sbin/mock-k8s.py (127.0.0.1:6443, minimal real-HS256-JWT-
+  verified k8s API mock), sshd. runner's own process: `build-job infinity`
+  (PID varies per reconnect) -- a long-running placeholder job.
+  Confirmed via /usr/local/sbin/provision.d/ (05-keys.sh, 10-l9.sh,
+  20-l10.sh, 25-l11.sh, 30-l12.sh -- no l13+ script) and grepping
+  emit_flag slugs (g2-l9-runner-landfall, g2-l10-docker-config-confession,
+  g2-l11-cloud-keys-in-the-home, g2-l12-the-token-mount) that this box
+  hosts exactly 4 levels, L9-L12, one kael fragment each -- see level10,
+  level11, level12 notes for the rest of the chain.
+
+kael.txt fragment 1 (~/kael.txt):
+  "This is a shared build runner, and it is doing exactly what build
+  runners do: holding other people's secrets in the open. A pipeline
+  hands every step whatever it needs, an API key, a registry login, a
+  deploy token, straight into the job, and a busy runner leaves the
+  residue of those steps lying around long after the job that needed them
+  is done. You are not looking at one job's secret. You are looking at
+  the till of every job that has ever run on this box. Some of it is live
+  right now. Some of it the runner forgot to wipe.
+
+  OBJECTIVE: recover the secret the live build step is carrying."
+
+recon / exploit:
+  `ps aux` showed `build-job infinity` running as runner itself -- no
+  escalation needed, it's the player's own process. Its environment is
+  directly readable via /proc/<pid>/environ since it's owned by the same
+  uid:
+    cat /proc/$(pgrep -f build-job | head -1)/environ | tr '\0' '\n'
+  -> CI_JOB_NAME=deploy-agent-build, CI_REGISTRY=127.0.0.1:5000,
+     L9_SECRET=GHS2{eef41876e5a998925d8f2aa99356b187}
+
+flag: GHS2{eef41876e5a998925d8f2aa99356b187}
+
+cleanup: none needed -- purely a read of the player's own process
+environment, no writes made anywhere on target.
+
+gotchas:
+  - before starting, per session instructions, checked `ps aux` for stray
+    claude native-binary processes: found 5 besides this session's own,
+    all sharing the exact same parent PID and cwd as this session (unlike
+    the single, more clearly-identifiable stray level8 described) -- no
+    field available locally distinguished "another VSCode window" from
+    "this window, different tab". Asked the user rather than guessing
+    given the destructive/irreversible risk of killing another active
+    session; user confirmed kill-all-but-mine, done via SIGTERM (all 5
+    exited cleanly, no SIGKILL needed).
+  - this box does NOT persist ANY state across separate SSH connections --
+    hostname, /run/ci/* contents, docker image digests, the k8s SA
+    token/ca.crt, and the AWS deploy key used in later levels are all
+    re-minted fresh per-connection. Two direct consequences that apply to
+    the whole L9-L12 chain: (1) never split a multi-step exploit across
+    separate ssh invocations if a later step depends on an exact value (a
+    digest, a token) read in an earlier one -- do the whole sequence
+    inside ONE ssh command; (2) don't hand-copy a long value out of one
+    command's output to paste into a later command if there's any chance
+    a reconnect happened in between -- pull it programmatically inside
+    the same session instead.
+  - outer ssh to 204.168.229.209 was flaky on this port too (same
+    "channel 0: open failed" pattern as ghost2/pipeline) -- retry-wrapped
+    every command.
+  - no curl or wget on this box; `crane` (registry-specific) and stock
+    `aws` cli are preinstalled instead -- see level10/level11 notes.

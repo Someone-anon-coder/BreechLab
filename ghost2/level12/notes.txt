@@ -1,0 +1,102 @@
+goal: Act III, L12 (last level on this box). Continues directly from
+level11 (same box, same session). Use the identity the cluster mounted
+for you, enumerate what it can do, and use the one right it should not
+have.
+
+kael.txt fragment 4 (arrived embedded as a comment block at the bottom of
+level11's recovered S3 bundle, never its own kael.txt file):
+  "You did not have to steal this one. Look at what is mounted inside
+  this workload, at a path every pod has, and you will find a token the
+  cluster handed you itself the moment this container started. That is
+  the part people miss: the platform issues every pod an identity by
+  default, and nobody prunes what that identity is allowed to do. Read
+  the token to see who you are, then ask the cluster, plainly, what you
+  are permitted to do. Somewhere in that answer is a permission this
+  account was never supposed to keep. Use that one, and nothing else.
+
+  OBJECTIVE: use the identity the cluster mounted for you, enumerate what
+  it can do, and use the one right it should not have. What you find
+  opens the developers' own ground."
+
+recon / exploit:
+  /var/run/secrets/kubernetes.io/serviceaccount/{token,namespace,ca.crt}
+  were present and auto-mounted exactly like a real k8s pod (this is the
+  "you did not have to steal this one" fragment 4 refers to). Token
+  decodes (JWT, HS256) to sub = system:serviceaccount:halcyon:ci-deploy,
+  namespace = halcyon.
+
+  kubectl is preinstalled; mock-k8s.py listens on 127.0.0.1:6443 (found
+  via /proc/net/tcp's hex local_address field -- no ss/netstat on this
+  box) and is a real (if minimal) k8s API mock: real HS256 JWT
+  verification, real discovery endpoints so plain kubectl works, real
+  SelfSubjectRulesReview handling for `auth can-i --list`. No kubeconfig
+  file needed -- passed server/token/CA straight as flags:
+    kubectl --server=https://127.0.0.1:6443 \
+      --token="$(cat .../token)" \
+      --certificate-authority=.../ca.crt \
+      auth can-i --list -n halcyon-system
+  -> reported get/list on `secrets`, CLUSTER-WIDE (no namespace
+  restriction) -- the one over-broad grant fragment 4 points at. (Its
+  only *narrow*, correctly-scoped grant -- get/list on pods, but ONLY in
+  namespace `halcyon` -- wasn't useful here; the point was distinguishing
+  the two, not using the narrow one.)
+
+  Used the over-grant across namespaces (the identity's own namespace is
+  halcyon, but the secret lives in halcyon-system -- confirmed
+  deliberately cross-namespace by the mock's own source comments, "do
+  not conflate the two"):
+    kubectl --server=https://127.0.0.1:6443 --token="$TOKEN" \
+      --certificate-authority="$CA" \
+      get secret deploy-repo-creds -n halcyon-system -o yaml
+  -> returned a Secret with a base64 `data.credentials` field; decoded:
+    REPO_URL=https://git.halcyon.internal/halcyon/deploy-agent.git
+    REPO_USER=ci-deploy-bot
+    REPO_TOKEN=ghp_9f3ac1b7e4d2085f6a1c3e9b7d2f4a80c1e3b6d0
+    CI_DEPLOY_FLAG=GHS2{1f27e0ca9c3076406e616d6b3dcc9774}
+
+flag: GHS2{1f27e0ca9c3076406e616d6b3dcc9774}
+
+confirming this box's scope is L9-L12 exactly, and that REPO_TOKEN is not
+a live further pivot this session (same pattern as ghost2 level8's
+CI_TOKEN "Act III handoff" turning out to be forward-looking flavor, not
+a reachable box at the time):
+  grep'd emit_flag calls across all of /usr/local/sbin/provision.d/*.sh:
+  exactly 4 hits (g2-l9-runner-landfall, g2-l10-docker-config-confession,
+  g2-l11-cloud-keys-in-the-home, g2-l12-the-token-mount), no l13+ slug
+  anywhere on THIS box. 30-l12.sh's own comment names this explicitly:
+  "The Act IV handoff: what the ci-deploy SA's one over-broad grant
+  [reaches]... (the supply-chain surface Act IV picks up), shaped like a
+  real secret" -- i.e. REPO_TOKEN/git.halcyon.internal is intentional
+  design flavor pointing at Act IV, confirmed by `getent hosts
+  git.halcyon.internal` resolving nothing on THIS box (Act IV, when
+  reached, turned out to be a genuinely separate box on a different port
+  -- see level13 onward). mock-k8s.py's own header comments are worth a
+  read too -- they explicitly call out "this is NOT kube-goat, the
+  commodity trap" and document the exact RBAC ruleset as a single GRANTS
+  list shared between enforcement and the can-i --list handler, so the
+  enumeration step is load-bearing rather than decorative by design.
+
+flags recovered on this box (L9-L12 summary):
+  L9:  GHS2{eef41876e5a998925d8f2aa99356b187}  (level9)
+  L10: GHS2{414d75108b27818a53a71d3e724ba344}  (level10)
+  L11: GHS2{69b769388b82a32162250fb9c0bf127a}  (level11)
+  L12: GHS2{1f27e0ca9c3076406e616d6b3dcc9774}  (this level)
+
+cleanup:
+  no writes made on-target beyond ephemeral /tmp scratch files (layer
+  tarballs, downloaded bundle/secret copies across level10-12), all
+  removed with `rm -f` immediately after use within the same SSH session
+  that created them. Verified clean at the end of the session: `ls -la
+  /tmp` and `ls -la ~` showed nothing left behind. Also moot in practice
+  -- this box spins up a brand-new ephemeral container per SSH connection
+  (hostname changes every reconnect, /run/ci timestamps reset), so
+  nothing persists across sessions regardless.
+  No privilege escalation was performed anywhere in this chain (L9-L12)
+  -- every step read something the runner account (or its auto-mounted
+  identity) was already handed; nothing was modified, and no root/other-
+  account access was ever obtained or needed.
+
+gotchas:
+  - none specific to this level beyond level9-11's; see those notes for
+    the session-wide non-persistence and connectivity gotchas that
+    applied throughout L9-L12.

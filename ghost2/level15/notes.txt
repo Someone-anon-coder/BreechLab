@@ -1,0 +1,84 @@
+goal: Act IV, L15 ("The Release Is Not The Source"). Continues directly
+from level13/level14 (same box, same session). Prove the shipped artifact
+carries what the source does not, and recover what the build injects.
+
+Note: L16 (level16/notes.txt) was earned off the exact same push as this
+level -- its reward condition is defined entirely in terms of this
+level's payload, so there was no separate action for one versus the
+other. See level16 for that half.
+
+kael fragment (~/.halcyon/kael-release.txt):
+  "Everyone who looked at this project looked at the source, and the
+  source is clean. I made sure of it. But what ships is not the source.
+  It is built from a release package, and a release package carries
+  machinery the source review never sees: files the build regenerates,
+  and data that sits there looking like data right up until the build
+  treats it as code. There is a payload in this project no reviewer will
+  ever find by reading the code, because it is not in the code. It is in
+  the build.
+
+  OBJECTIVE: prove the shipped artifact carries what the source does not,
+  and recover what the build injects. Learn the mechanism. You will use
+  it."
+
+mechanism (from reading RELEASING.md, the Makefile, halcyon-distprep, and
+/opt/halcyon/release-aux/build-aux/{inject.sh,release.mk}):
+  RELEASING.md states releases build FROM a tarball (`make dist`), never
+  from a working tree. The Makefile's `dist` target runs
+  `halcyon-distprep` (world-readable, /usr/local/bin/halcyon-distprep) if
+  present on the build host, which stages build-aux/{inject.sh,
+  release.mk} from /opt/halcyon/release-aux/build-aux/ into the tarball --
+  files that exist ONLY on the release host, never committed to the repo,
+  never visible to a source reviewer. The Makefile's top-level `-include
+  build-aux/release.mk` is a silent no-op on a plain git checkout (no
+  build-aux/ there, so `make build` from git is clean) but takes effect
+  once a tarball carrying it is extracted and rebuilt -- a direct
+  xz/liblzma-style build injection (inject.sh's own header comment names
+  the parallel explicitly). inject.sh decodes
+  tests/fixtures/corpus-good.bin (base64, then XOR with the fixed key
+  "HALCYON-XZ" -- both baked into inject.sh's decode and its inverse
+  /opt/halcyon/release-aux/encode-fixture, also world-readable AND
+  world-executable) and compiles the decoded text into a generated
+  payload.c whose `__attribute__((constructor))` PRINTS it the instant
+  the built binary runs -- and it's also a plain string constant, visible
+  via `strings` without ever executing anything.
+  25-l15.sh (a gate-time provisioning slice, runs automatically at
+  session start, no player action needed) already re-encodes
+  tests/fixtures/corpus-good.bin server-side, directly against the bare
+  repo's object store (a new commit on main, "refresh release test
+  fixture" -- visible sitting on top of level13's dangling-commit hunt),
+  with the payload line "HALCYON-RELEASE-INJECT <this session's L15
+  flag>". So main's current tip, as cloned, ALREADY carries this
+  session's L15 payload -- no fixture edit was required to earn L15/L16,
+  only triggering the release build.
+
+recon / exploit:
+  Branched off main under refs/heads/release/ship -- no file edits
+  needed, the fixture was already poisoned server-side:
+    git checkout -b release/ship main
+    git push https://ci-bot:<token>@127.0.0.1/halcyon/deploy-agent.git HEAD:refs/heads/release/ship
+  Polled `hal-ci status` for the run against that ref (run id 2). mock-ci
+  ran `make dist` -> extracted the tarball -> `make build` from that
+  extracted tree (as `ci`) -> signed the resulting binary and stored it
+  world-readable at /run/dev/ci-runs/2.artifact (16160 bytes).
+  `strings /run/dev/ci-runs/2.artifact | grep HALCYON-RELEASE-INJECT`
+  (no execution needed -- it's a plain string constant compiled in by the
+  injected payload.c) returned:
+    HALCYON-RELEASE-INJECT GHS2{a95e212f1068b7f31be05a21841aa218}
+
+flag: GHS2{a95e212f1068b7f31be05a21841aa218}
+
+cleanup: none needed on target beyond the pushed branch and mock-ci's own
+run artifact under /run/dev/ci-runs/ (world-readable game-environment
+output, not player-created scratch state); no /tmp or home-directory
+files left behind.
+
+gotchas:
+  - depends on the ci-bot token being fresh in the same connection and
+    recovered via a FILESYSTEM-path clone, not an HTTP clone -- see
+    level14's gotchas for why (the L13 dangling commit is invisible over
+    smart-HTTP).
+  - `strings` on the stored artifact was sufficient to recover the
+    payload -- the built binary never needed to be executed at all, since
+    the injected string is a plain compiled-in constant (only the fleet
+    deploy in level18 actually needs the binary to run).

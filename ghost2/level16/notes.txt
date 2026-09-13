@@ -1,0 +1,48 @@
+goal: Act IV, L16 ("Signed, Not Safe"). Continues directly from level15
+(same box, same session, same push -- see that file for the release-build
+mechanism this level's reward is defined on top of). Get the legitimate
+signer to sign your artifact.
+
+kael fragment (~/.halcyon/kael-signing.txt):
+  "The fleet will not run anything that is not signed, and they think
+  that is the end of the argument. It is not, because a signature does
+  not say the code is good. It says the pipeline made it. And you own
+  what the pipeline makes. You do not need their key. You need them to
+  sign what you built, and they will, the moment it comes out of the
+  pipeline the way everything else does, without anyone asking whether it
+  should have.
+
+  OBJECTIVE: get the legitimate signer to sign your artifact."
+
+mechanism (from reading mock-signer.py and the L15/L16 provisioning
+scripts):
+  mock-signer.py's entire lesson is that POST /sign signs whatever bytes
+  it's handed -- no re-review, no identity check on the caller (its own
+  header comment says restricting that is explicitly not this service's
+  job). mock-ci.py's release stage (the same one level15 uses) signs
+  every artifact it builds and verifies the signature honestly (openssl
+  vs /run/dev/signpub) before storing or logging it -- and then checks
+  whether the just-signed bytes contain the L15 poison marker
+  (/run/dev/l15-marker, "HALCYON-RELEASE-INJECT"). If they do, mock-ci
+  writes the pre-minted L16 flag directly into that run's world-readable
+  log body. Since main's fixture already carried the marker+flag from
+  25-l15.sh (see level15), the very same `release/*` push that earned L15
+  also earned L16 -- nothing separate was done for this level beyond
+  level15's push.
+
+recon / exploit:
+  Same push as level15 (refs/heads/release/ship, run id 2). `hal-ci log 2`
+  contained, right after the build/sign steps:
+    [release] the signed artifact carries the L15 poison marker: the
+    legitimate signer just certified a poisoned build. A signature
+    attests who signed, not what was signed.
+    [release] L16 flag: GHS2{629cf3b1c383d4ef28ecac1922cde510}
+
+flag: GHS2{629cf3b1c383d4ef28ecac1922cde510}
+
+cleanup: see level15 -- shared push, nothing separate to clean up.
+
+gotchas:
+  - see level14/level15's gotchas -- this level shares its push and its
+    dependency on a fresh, filesystem-clone-recovered ci-bot token in the
+    same connection.

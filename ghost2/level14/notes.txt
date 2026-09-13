@@ -1,0 +1,85 @@
+goal: Act IV, L14 ("The Config Runs You"). Continues directly from
+level13 (same box, same session-scoped mechanics; see that file for the
+ssh connection, orientation, and the box-wide confirmation that L13-L18
+is the complete level set here). Make the pipeline run your code as
+itself, and take the secret it runs with.
+
+kael fragment (~/.halcyon/kael.txt):
+  "They locked down the pipeline file. Nobody without a review can change
+  how the build runs. But how the build is defined and what the build
+  actually touches when it runs are two different things, and only one of
+  them is guarded. The pipeline runs with its own hands and its own
+  secrets, and it runs more than the file they protected. You do not need
+  to change how the pipeline is defined. You need to change what it
+  already agreed to run.
+
+  OBJECTIVE: make the pipeline run your code as itself, and take the
+  secret it runs with. That secret is the pipeline's own key."
+
+mechanism (from reading CODEOWNERS, the repo's pre-receive hook, and
+mock-ci.py):
+  The repo's CODEOWNERS file protects exactly one path:
+  `/.halcyon-ci.yml @release-team`. The bare repo's pre-receive hook
+  (readable at /srv/git/halcyon/deploy-agent.git/hooks/pre-receive)
+  enforces this as a `protected-path .halcyon-ci.yml` rule -- ANY push
+  whose commits touch that one file, on ANY ref (not just main), is
+  rejected outright. There is no exemption for a protected PATH the way
+  there is for a protected REF -- CODEOWNERS review is simply
+  unavailable to this identity, full stop.
+  But `.halcyon-ci.yml`'s `test` stage just runs `make test`, which the
+  Makefile wires to `sh tests/run.sh` -- and tests/run.sh is NOT a
+  protected path. Its own comment even says so: "this file (not
+  .halcyon-ci.yml itself) is what the pipeline actually executes."
+  mock-ci.py's watcher thread (fed by the post-receive hook, which
+  enqueues every accepted push regardless of which ref it landed on --
+  the test stage runs unconditionally on EVERY push, not just a
+  release/deploy ref) clones the pushed ref and runs the test stage's
+  script as the unprivileged `ci` system user via `setpriv`, with an
+  environment built from scratch (`env -i`, never a passthrough of
+  mock-ci's own root environment). That from-scratch env always includes
+  CI_DEPLOY_KEY when /run/dev/ci-secret is armed -- and 20-l14.sh's own
+  comment states plainly: "CI_DEPLOY_KEY IS the L14 flag itself".
+
+recon / exploit:
+  Cloned the bare repo directly from the filesystem path
+  (/srv/git/halcyon/deploy-agent.git, NOT the HTTP forge -- a plain
+  `git clone` over smart-HTTP only negotiates objects reachable from the
+  advertised refs, so it never transfers level13's dangling commit; a
+  local/filesystem clone copies the whole object store including
+  unreachable objects) and re-recovered the ci-bot push token fresh via
+  level13's dangling-commit method (the token does not persist across
+  connections).
+  Branched off main under an ordinary name (`exfil-l14` -- nothing about
+  the ref matters here, it's not main, not release/*, not the automerge/*
+  deploy lane, so none of level17's protection/exemption logic is even in
+  play). Edited tests/run.sh to print $CI_DEPLOY_KEY before its existing
+  `./deploy-agent --selftest` line:
+    sed -i 's#\./deploy-agent --selftest#echo "EXFIL_CI_DEPLOY_KEY=$CI_DEPLOY_KEY" \&\& ./deploy-agent --selftest#' tests/run.sh
+  Committed and pushed with the recovered ci-bot Basic-auth credential:
+    git push https://ci-bot:<token>@127.0.0.1/halcyon/deploy-agent.git HEAD:refs/heads/exfil-l14
+  Polled `hal-ci status` for the run against that ref until it left
+  "running" (run id 1, status passed almost immediately), then
+  `hal-ci log 1` -- the captured test-stage stdout contained:
+    EXFIL_CI_DEPLOY_KEY=GHS2{6c9613708aff76812a61258677809d1c}
+
+flag: GHS2{6c9613708aff76812a61258677809d1c}
+
+cleanup: none needed on target beyond the pushed branch itself (the game
+environment's own git history, not player-owned state) -- no /tmp or
+home-directory artifacts left behind; confirmed clean at the end of the
+whole L14-L18 session (see level18's cleanup note).
+
+gotchas:
+  - the ci-bot token/dangling-commit recovery MUST be done via a
+    filesystem-path clone (`/srv/git/halcyon/deploy-agent.git`), not the
+    HTTP forge URL -- a smart-HTTP clone/fetch only transfers objects
+    reachable from advertised refs and will never see the dangling L13
+    commit, silently leaving `git fsck --unreachable` empty on an
+    otherwise-successful clone. Cost real debugging time here: the first
+    attempt at this whole L14-L18 script cloned via HTTP, `git fsck`
+    found nothing, and the script errored out cryptically deep into a
+    `set -e` shell before printing anything useful.
+  - all of L14-L18 were run as ONE continuous multi-step script inside a
+    single ssh connection (heredoc'd bash -s), since every session-scoped
+    value (ci-bot token, exempt lane, fleet marker) is freshly re-derived
+    per connection -- see level13's non-persistence gotcha.

